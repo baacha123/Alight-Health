@@ -208,7 +208,7 @@ def check_file_patched(file_path: Path, patch_info: Dict) -> bool:
     if not file_path.exists():
         return False
 
-    content = file_path.read_text()
+    content = file_path.read_text(encoding='utf-8')
 
     for patch in patch_info.get("patches", []):
         check_str = patch.get("check_already_patched", patch["replace"][:50])
@@ -237,7 +237,7 @@ def apply_patch_to_file(file_path: Path, patch_info: Dict, dry_run: bool = False
         result["message"] = "Already patched"
         return result
 
-    content = file_path.read_text()
+    content = file_path.read_text(encoding='utf-8')
     original_content = content
     patches_applied = 0
 
@@ -264,7 +264,7 @@ def apply_patch_to_file(file_path: Path, patch_info: Dict, dry_run: bool = False
     if not backup_path.exists():
         shutil.copy2(file_path, backup_path)
 
-    file_path.write_text(content)
+    file_path.write_text(content, encoding='utf-8')
 
     # Clear pycache
     pycache_dir = file_path.parent / "__pycache__"
