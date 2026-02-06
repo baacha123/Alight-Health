@@ -41,8 +41,12 @@ evaluation:
 
 # === WatsonX Settings (for --judge) ===
 # Required for LLM-as-Judge evaluation
-# You can set api_key here OR use WATSONX_API_KEY environment variable
+# Uses the same Orchestrate Gateway as the ADK evaluation
+#
+# Get these values from your orchestrate environment or auth_config:
+#   api_key: Your WXO API key (or set WXO_API_KEY env var)
+#   url: Your instance URL (e.g., https://origin-api.us-gov-east-1.watson-orchestrate.ibmforusgov.com/instances/YOUR-INSTANCE-ID)
+#
 watsonx:
-  # api_key: "YOUR_WATSONX_API_KEY_HERE"
-  url: "https://us-south.ml.cloud.ibm.com"
-  project_id: "skills-flow"
+  # api_key: "YOUR_WXO_API_KEY_HERE"
+  # url: "https://origin-api.us-gov-east-1.watson-orchestrate.ibmforusgov.com/instances/YOUR-INSTANCE-ID"

@@ -30,13 +30,12 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 import importlib.util
 
-# IBM watsonx.ai SDK - for LLM-as-Judge
+# For LLM-as-Judge via Orchestrate Gateway
 try:
-    from ibm_watsonx_ai import Credentials
-    from ibm_watsonx_ai.foundation_models import ModelInference
-    WATSONX_AVAILABLE = True
+    import requests
+    REQUESTS_AVAILABLE = True
 except ImportError:
-    WATSONX_AVAILABLE = False
+    REQUESTS_AVAILABLE = False
 
 # =============================================================================
 # CONFIGURATION
@@ -678,58 +677,79 @@ def cmd_report(config: Dict[str, Any], args) -> int:
 
 
 # =============================================================================
-# LLM AS JUDGE
+# LLM AS JUDGE (via Orchestrate Gateway)
 # =============================================================================
 
-def get_watsonx_model(config: Dict[str, Any]):
-    """Initialize WatsonX model for LLM judge."""
-    if not WATSONX_AVAILABLE:
-        print("ERROR: ibm-watsonx-ai package not installed.")
-        print("Install with: pip install ibm-watsonx-ai")
-        sys.exit(1)
+def get_orchestrate_auth() -> Optional[Dict[str, str]]:
+    """Get authentication info from orchestrate CLI."""
+    try:
+        # Get active environment info
+        result = subprocess.run(
+            ["orchestrate", "env", "list"],
+            capture_output=True,
+            text=True
+        )
 
-    # Get API key from config or environment
+        if "(active)" not in result.stdout:
+            return None
+
+        # Parse the active environment to get the URL
+        # The orchestrate CLI stores auth in ~/.orchestrate or similar
+        # We'll use the gateway endpoint directly
+
+        # Try to get from environment variables set by orchestrate
+        api_key = os.getenv("WXO_API_KEY") or os.getenv("WATSONX_API_KEY")
+        instance_url = os.getenv("WXO_INSTANCE_URL") or os.getenv("WATSONX_URL")
+
+        if api_key and instance_url:
+            return {"api_key": api_key, "instance_url": instance_url}
+
+        return None
+    except Exception:
+        return None
+
+
+def call_gateway_llm(config: Dict[str, Any], prompt: str, model_id: str) -> str:
+    """Call LLM via Orchestrate Gateway (same as ADK uses)."""
+
+    # Get auth from config or environment
     watsonx_config = config.get("watsonx", {})
-    api_key = watsonx_config.get("api_key") or os.getenv("WATSONX_API_KEY") or os.getenv("WXO_API_KEY")
+    api_key = watsonx_config.get("api_key") or os.getenv("WXO_API_KEY") or os.getenv("WATSONX_API_KEY")
+    instance_url = watsonx_config.get("url") or os.getenv("WXO_INSTANCE_URL")
 
     if not api_key:
-        print("ERROR: WatsonX API key not found.")
-        print("Set it in govcloud_config.yaml under 'watsonx.api_key'")
-        print("Or set environment variable: WATSONX_API_KEY")
-        sys.exit(1)
+        raise ValueError("No API key found. Set watsonx.api_key in config or WXO_API_KEY env var")
 
-    # Get URL - use GovCloud URL by default
-    url = watsonx_config.get("url") or os.getenv("WATSONX_URL") or "https://us-south.ml.cloud.ibm.com"
-    project_id = watsonx_config.get("project_id") or os.getenv("WATSONX_PROJECT_ID") or "skills-flow"
+    if not instance_url:
+        raise ValueError("No instance URL found. Set watsonx.url in config or WXO_INSTANCE_URL env var")
 
-    # Get model - use same model as llm_judge from config
-    models = config.get("models", {})
-    model_id = models.get("llm_judge", "meta-llama/llama-3-2-90b-vision-instruct")
+    # Build gateway URL
+    gateway_url = f"{instance_url}/v1/orchestrate/gateway/model/chat/completions"
 
-    credentials = Credentials(url=url, api_key=api_key)
-
-    model = ModelInference(
-        model_id=model_id,
-        credentials=credentials,
-        project_id=project_id
-    )
-    return model, model_id
-
-
-def call_watsonx_llm(model, prompt: str) -> str:
-    """Call WatsonX LLM and return response text."""
-    params = {
-        "decoding_method": "greedy",
-        "max_new_tokens": 500,
-        "temperature": 0.0,
-        "stop_sequences": ["\n\n\n"]
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
     }
-    response = model.generate_text(prompt=prompt, params=params)
-    return response
+
+    payload = {
+        "model": model_id,
+        "messages": [
+            {"role": "system", "content": "You are an evaluation judge. Respond only with valid JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.0,
+        "max_tokens": 500
+    }
+
+    response = requests.post(gateway_url, headers=headers, json=payload, timeout=60)
+    response.raise_for_status()
+
+    result = response.json()
+    return result["choices"][0]["message"]["content"]
 
 
 def llm_judge_evaluate(
-    model,
+    config: Dict[str, Any],
     question: str,
     expected_answer: str,
     agent_response: str,
@@ -738,7 +758,7 @@ def llm_judge_evaluate(
     """
     Use LLM as a Judge to evaluate if agent response is correct.
 
-    Compares agent response against expected answer semantically.
+    Uses the Orchestrate Gateway (same auth as ADK) to call the LLM.
     Returns verdict (CORRECT/PARTIALLY_CORRECT/INCORRECT) and score (0-1).
     """
     judge_prompt = f"""You are an expert evaluation judge for a health benefits Q&A system.
@@ -776,8 +796,9 @@ Respond with ONLY a JSON object (no markdown, no explanation outside JSON):
 }}
 """
 
+    result_text = ""
     try:
-        result_text = call_watsonx_llm(model, judge_prompt)
+        result_text = call_gateway_llm(config, judge_prompt, model_id)
 
         # Handle potential markdown code blocks
         if result_text.startswith("```"):
@@ -807,7 +828,7 @@ Respond with ONLY a JSON object (no markdown, no explanation outside JSON):
             "relevance": float(result.get("relevance", result["score"])),
             "reasoning": result["reasoning"],
             "model": model_id,
-            "provider": "watsonx"
+            "provider": "orchestrate-gateway"
         }
 
     except json.JSONDecodeError as e:
@@ -816,7 +837,7 @@ Respond with ONLY a JSON object (no markdown, no explanation outside JSON):
             "verdict": "ERROR",
             "score": 0.0,
             "reasoning": f"Failed to parse LLM response as JSON: {str(e)}",
-            "raw_response": result_text if 'result_text' in dir() else None
+            "raw_response": result_text if result_text else None
         }
     except Exception as e:
         return {
@@ -870,19 +891,30 @@ def cmd_judge(config: Dict[str, Any], args) -> int:
     print("  LLM AS JUDGE EVALUATION")
     print(f"{'='*60}")
 
-    # Check if watsonx is available
-    if not WATSONX_AVAILABLE:
-        print("\nERROR: ibm-watsonx-ai package not installed.")
-        print("Install with: pip install ibm-watsonx-ai")
+    # Check for required config
+    watsonx_config = config.get("watsonx", {})
+    api_key = watsonx_config.get("api_key") or os.getenv("WXO_API_KEY") or os.getenv("WATSONX_API_KEY")
+    instance_url = watsonx_config.get("url") or os.getenv("WXO_INSTANCE_URL")
+
+    if not api_key:
+        print("\nERROR: No API key found for LLM-as-Judge.")
+        print("Set one of the following:")
+        print("  1. watsonx.api_key in govcloud_config.yaml")
+        print("  2. WXO_API_KEY environment variable")
+        print("  3. WATSONX_API_KEY environment variable")
         return 1
 
-    # Initialize WatsonX model
-    try:
-        model, model_id = get_watsonx_model(config)
-        print(f"\nLLM Judge Model: {model_id}")
-    except Exception as e:
-        print(f"\nERROR: Failed to initialize WatsonX model: {e}")
+    if not instance_url:
+        print("\nERROR: No instance URL found.")
+        print("Set one of the following:")
+        print("  1. watsonx.url in govcloud_config.yaml")
+        print("  2. WXO_INSTANCE_URL environment variable")
         return 1
+
+    models = config.get("models", {})
+    model_id = models.get("llm_judge", "meta-llama/llama-3-2-90b-vision-instruct")
+    print(f"\nLLM Judge Model: {model_id}")
+    print(f"Using Gateway: {instance_url}")
 
     paths = config.get("paths", {})
     test_dir = Path(paths.get("test_cases", "./test_data"))
@@ -949,7 +981,7 @@ def cmd_judge(config: Dict[str, Any], args) -> int:
                 print(f"\n  Evaluating: {question[:50]}...")
 
                 judge_result = llm_judge_evaluate(
-                    model=model,
+                    config=config,
                     question=question,
                     expected_answer=gt["expected_response"],
                     agent_response=agent_response,
