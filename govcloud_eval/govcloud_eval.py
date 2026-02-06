@@ -711,6 +711,7 @@ def get_orchestrate_auth() -> Optional[Dict[str, str]]:
 
 def call_gateway_llm(config: Dict[str, Any], prompt: str, model_id: str) -> str:
     """Call LLM via Orchestrate Gateway (same as ADK uses)."""
+    import base64
 
     # Get auth from config or environment
     watsonx_config = config.get("watsonx", {})
@@ -726,8 +727,12 @@ def call_gateway_llm(config: Dict[str, Any], prompt: str, model_id: str) -> str:
     # Build gateway URL
     gateway_url = f"{instance_url}/v1/orchestrate/gateway/model/chat/completions"
 
+    # Try Basic auth (the API key format suggests base64-encoded credentials)
+    # Format: Basic base64(api_key) or Basic base64(user:api_key)
+    auth_value = base64.b64encode(f"apikey:{api_key}".encode()).decode()
+
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Basic {auth_value}",
         "Content-Type": "application/json"
     }
 
@@ -742,6 +747,17 @@ def call_gateway_llm(config: Dict[str, Any], prompt: str, model_id: str) -> str:
     }
 
     response = requests.post(gateway_url, headers=headers, json=payload, timeout=60)
+
+    # If Basic auth fails, try Bearer
+    if response.status_code == 401:
+        headers["Authorization"] = f"Bearer {api_key}"
+        response = requests.post(gateway_url, headers=headers, json=payload, timeout=60)
+
+    # If still failing, try with just the raw key as Basic
+    if response.status_code == 401:
+        headers["Authorization"] = f"Basic {api_key}"
+        response = requests.post(gateway_url, headers=headers, json=payload, timeout=60)
+
     response.raise_for_status()
 
     result = response.json()
