@@ -1067,8 +1067,8 @@ Examples:
   python govcloud_eval.py --all                # Setup + Evaluate + Judge + Report
 
 LLM-as-Judge requires:
-  - pip install ibm-watsonx-ai
-  - Set watsonx.api_key in govcloud_config.yaml OR set WATSONX_API_KEY env var
+  - Set watsonx.api_key in govcloud_config.yaml OR set WXO_API_KEY env var
+  - Set watsonx.url in govcloud_config.yaml OR set WXO_INSTANCE_URL env var
         """
     )
 
