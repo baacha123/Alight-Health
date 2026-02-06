@@ -1,81 +1,39 @@
 # =============================================================================
 # GovCloud Evaluation Configuration
 # =============================================================================
-# This config file is for IBM watsonx Orchestrate evaluations on GovCloud/FedRAMP
-# environments where certain models (like 405b) are not available.
+# This config is used by govcloud_eval.py to run evaluations on GovCloud/FedRAMP.
 #
 # SETUP:
-#   1. Run `orchestrate models list` to see available models for your instance
-#   2. Update the model IDs below with models from that list
-#   3. Set your authentication (or use environment variables)
+#   1. Run `orchestrate models list` to see available models
+#   2. Update model IDs if needed (defaults work for most GovCloud instances)
+#   3. Update paths.test_cases to point to your ground truth folder
 #
 # =============================================================================
 
-# === Authentication ===
-# You can set these here OR use environment variables:
-#   - WXO_API_KEY (or WATSONX_API_KEY)
-#   - WXO_INSTANCE_URL (or WATSONX_URL)
-auth:
-  # Leave empty to use environment variables
-  url: ""
-  tenant_name: ""
-  # api_key: ""  # Recommended: use WXO_API_KEY env var instead
-
 # === Models ===
-# Run `orchestrate models list` to see available models for your instance
-# Common GovCloud models:
-#   - meta-llama/llama-3-2-90b-vision-instruct
-#   - meta-llama/llama-3-3-70b-instruct
-#   - ibm/granite-3-8b-instruct
+# These are GovCloud-available models (405b is NOT available on GovCloud)
 models:
-  # Model for simulating user interactions during evaluation
   llm_user: "meta-llama/llama-3-2-90b-vision-instruct"
-
-  # Model for LLM-as-a-Judge evaluation (semantic matching, faithfulness, etc.)
   llm_judge: "meta-llama/llama-3-2-90b-vision-instruct"
-
-  # Embedding model for semantic similarity
   embedding: "sentence-transformers/all-minilm-l6-v2"
 
 # === Paths ===
 paths:
-  # Directory containing ground truth test case JSON files
-  test_cases: "./sample_test_cases"
+  # Directory containing your ground truth test case JSON files
+  test_cases: "./test_data"
 
   # Directory where evaluation results will be saved
   output_dir: "./eval_results_govcloud"
 
-  # Excel file for generating test cases (optional, for --generate)
-  excel_file: "./Example Health & Health Nav Questions 1.xlsx"
-
 # === Provider Settings ===
 provider:
-  # "gateway" for WXO gateway, "watsonx" for direct watsonx.ai
   type: "gateway"
   vendor: "ibm"
 
-  # Project ID for watsonx.ai (if using watsonx provider directly)
-  project_id: "skills-flow"
-
 # === Evaluation Settings ===
 evaluation:
-  # Number of parallel workers for evaluation
   num_workers: 1
-
-  # Number of times to run each test case
   n_runs: 1
-
-  # Similarity threshold for semantic matching (0.0 - 1.0)
   similarity_threshold: 0.8
-
-  # Enable fuzzy matching for text comparison
   enable_fuzzy_matching: false
-
-  # Strict topological matching for journey success
   is_strict: true
-
-# === Test Case Generation Settings (for --generate) ===
-# Only used when generating test cases from Excel
-generation:
-  agent_name: "alight_supervisor_agent"
-  tool_name: "call_verint_studio_for_hr_and_benefits_questions"
