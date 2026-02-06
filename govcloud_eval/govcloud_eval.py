@@ -511,6 +511,60 @@ def cmd_setup(config: Dict[str, Any], args) -> int:
     return 0 if success else 1
 
 
+def generate_adk_config(config: Dict[str, Any], output_path: Path) -> Path:
+    """Generate ADK-compatible config YAML from our simplified config."""
+    try:
+        import yaml
+    except ImportError:
+        print("ERROR: PyYAML required. Run: pip install pyyaml")
+        sys.exit(1)
+
+    models = config.get("models", {})
+    provider = config.get("provider", {})
+    evaluation = config.get("evaluation", {})
+
+    # Get model IDs with defaults
+    llm_user_model = models.get("llm_user", "meta-llama/llama-3-2-90b-vision-instruct")
+    llm_judge_model = models.get("llm_judge", "meta-llama/llama-3-2-90b-vision-instruct")
+    embedding_model = models.get("embedding", "sentence-transformers/all-minilm-l6-v2")
+
+    adk_config = {
+        "llm_user_config": {
+            "model_id": llm_user_model,
+        },
+        "provider_config": {
+            "model_id": llm_user_model,
+            "provider": provider.get("type", "gateway"),
+            "embedding_model_id": embedding_model,
+            "vendor": provider.get("vendor", "ibm"),
+            "referenceless_eval": False,
+        },
+        "custom_metrics_config": {
+            "llmaaj_config": {
+                "model_id": llm_judge_model,
+                "provider": "watsonx",
+                "embedding_model_id": embedding_model,
+                "vendor": provider.get("vendor", "ibm"),
+                "referenceless_eval": False,
+            },
+        },
+        "metrics": [
+            "JourneySuccessMetric",
+            "ToolCalling",
+        ],
+        "similarity_threshold": evaluation.get("similarity_threshold", 0.8),
+        "enable_fuzzy_matching": evaluation.get("enable_fuzzy_matching", False),
+        "is_strict": evaluation.get("is_strict", True),
+        "num_workers": evaluation.get("num_workers", 1),
+        "n_runs": evaluation.get("n_runs", 1),
+    }
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        yaml.safe_dump(adk_config, f, default_flow_style=False)
+
+    return output_path
+
+
 def cmd_evaluate(config: Dict[str, Any], args) -> int:
     """Run ADK evaluation."""
     print(f"\n{'='*60}")
@@ -546,6 +600,11 @@ def cmd_evaluate(config: Dict[str, Any], args) -> int:
     print(f"\nRunning {len(test_files)} test case(s)")
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Generate ADK-compatible config
+    adk_config_path = SCRIPT_DIR / "eval_config_generated.yaml"
+    generate_adk_config(config, adk_config_path)
+    print(f"Generated ADK config: {adk_config_path}")
+
     # Build test paths string
     test_paths_str = ",".join(str(f) for f in test_files)
 
@@ -553,6 +612,7 @@ def cmd_evaluate(config: Dict[str, Any], args) -> int:
         "orchestrate", "evaluations", "evaluate",
         "--test-paths", test_paths_str,
         "--output-dir", str(output_dir),
+        "--config", str(adk_config_path),
     ]
 
     print(f"\nRunning: {' '.join(cmd)}")
