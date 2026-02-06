@@ -1,0 +1,30 @@
+{
+  "agent": "test_faq_agent",
+  "goals": {
+    "get_faq_answer-1": [
+      "summarize"
+    ]
+  },
+  "goal_details": [
+    {
+      "type": "tool_call",
+      "name": "get_faq_answer-1",
+      "tool_name": "get_faq_answer",
+      "args": {
+        "question": "How many vacation days do I have?"
+      }
+    },
+    {
+      "name": "summarize",
+      "type": "text",
+      "response": "Employees receive 15 days of paid vacation per year.",
+      "keywords": [
+        "15 days",
+        "vacation",
+        "paid"
+      ]
+    }
+  ],
+  "story": "An employee wants to know how many vacation days they receive.",
+  "starting_sentence": "How many vacation days do I have?"
+}
