@@ -1,0 +1,26 @@
+{
+  "agent": "alight_supervisor_agent",
+  "goals": {
+    "call_verint_studio_for_hr_and_benefits_questions-1": ["summarize"]
+  },
+  "goal_details": [
+    {
+      "type": "tool_call",
+      "name": "call_verint_studio_for_hr_and_benefits_questions-1",
+      "tool_name": "call_verint_studio_for_hr_and_benefits_questions",
+      "args": {
+        "query": "How long do I have to add a newborn baby to my health insurance?"
+      }
+    },
+    {
+      "name": "summarize",
+      "type": "text",
+      "response": "You have 60 days to add a newborn child to your health insurance coverage. Coverage for newborn dependents will automatically be covered for 31 calendar days from the date of birth. In order to continue coverage beyond this 31-calendar-day period, you must enroll the child within 60 calendar days from the birth. This extended 60-day window also applies to adoptions and placements for adoption.",
+      "keywords": ["60 days", "newborn", "birth", "automatic coverage", "31 calendar days"]
+    }
+  ],
+  "story": "A new parent at Allstate wants to know the deadline for adding their newborn to health insurance.",
+  "starting_sentence": "How long do I have to add a newborn baby to my health insurance?",
+  "source_document": "Allstate Cafeteria Plan - Tables of Qualified Changes in Status",
+  "source_page": "26"
+}

@@ -1,0 +1,29 @@
+{
+  "_comment": "TEMPLATE: Copy this file and replace all <PLACEHOLDER> values",
+
+  "agent": "<YOUR_AGENT_NAME>",
+
+  "goals": {
+    "<YOUR_TOOL_NAME>-1": ["summarize"]
+  },
+
+  "goal_details": [
+    {
+      "type": "tool_call",
+      "name": "<YOUR_TOOL_NAME>-1",
+      "tool_name": "<YOUR_TOOL_NAME>",
+      "args": {
+        "query": "<THE_USER_QUESTION>"
+      }
+    },
+    {
+      "type": "text",
+      "name": "summarize",
+      "response": "<THE_EXPECTED_ANSWER>",
+      "keywords": ["<KEYWORD_1>", "<KEYWORD_2>", "<KEYWORD_3>"]
+    }
+  ],
+
+  "story": "<BRIEF_DESCRIPTION_OF_USER_INTENT>",
+  "starting_sentence": "<THE_USER_QUESTION>"
+}

@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+adkvenv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Eval outputs
+eval_results/
+eval_results_govcloud/
+*.log
+
+# Config with secrets
+.env
+*.env.local
+
+# Generated configs
+eval_config_generated.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.govcloud.bak

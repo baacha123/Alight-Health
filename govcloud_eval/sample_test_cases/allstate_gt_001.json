@@ -1,0 +1,26 @@
+{
+  "agent": "alight_supervisor_agent",
+  "goals": {
+    "call_verint_studio_for_hr_and_benefits_questions-1": ["summarize"]
+  },
+  "goal_details": [
+    {
+      "type": "tool_call",
+      "name": "call_verint_studio_for_hr_and_benefits_questions-1",
+      "tool_name": "call_verint_studio_for_hr_and_benefits_questions",
+      "args": {
+        "query": "How long do I have to make benefit changes after getting married?"
+      }
+    },
+    {
+      "name": "summarize",
+      "type": "text",
+      "response": "You must make benefit changes within 31 days of your marriage date. After getting married, you may enroll yourself and/or your newly eligible dependents, change your medical coverage option, change your coverage tier, or cancel coverage. All benefit changes must be made on AllstateGoodLife.com or by calling the Allstate Benefits Center within 31 days of the date of your Qualified Change in Status.",
+      "keywords": ["31 days", "marriage", "enroll", "AllstateGoodLife.com"]
+    }
+  ],
+  "story": "An Allstate employee just got married and wants to know the deadline for adding their spouse to benefits.",
+  "starting_sentence": "How long do I have to make benefit changes after getting married?",
+  "source_document": "Allstate Cafeteria Plan - Tables of Qualified Changes in Status",
+  "source_page": "26"
+}

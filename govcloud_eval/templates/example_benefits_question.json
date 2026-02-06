@@ -1,0 +1,29 @@
+{
+  "_comment": "EXAMPLE: A typical benefits question test case",
+
+  "agent": "benefits_supervisor_agent",
+
+  "goals": {
+    "call_benefits_api-1": ["summarize"]
+  },
+
+  "goal_details": [
+    {
+      "type": "tool_call",
+      "name": "call_benefits_api-1",
+      "tool_name": "call_benefits_api",
+      "args": {
+        "query": "What is my annual deductible for medical coverage?"
+      }
+    },
+    {
+      "type": "text",
+      "name": "summarize",
+      "response": "Your annual deductible is $500 for in-network services and $1,000 for out-of-network services. The deductible resets on January 1st each year.",
+      "keywords": ["deductible", "$500", "in-network", "$1,000", "out-of-network"]
+    }
+  ],
+
+  "story": "Employee wants to understand their health insurance deductible amounts",
+  "starting_sentence": "What is my annual deductible for medical coverage?"
+}
