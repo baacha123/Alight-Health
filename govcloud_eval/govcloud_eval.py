@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """
-GovCloud Agent Evaluation (with Auto-Patching)
-===============================================
+GovCloud Agent Evaluation (with Auto-Patching + LLM-as-Judge)
+=============================================================
 All-in-one script for running IBM watsonx Orchestrate evaluations on GovCloud/FedRAMP
 environments where certain models (like 405b) are not available.
 
 This script automatically:
 1. Patches agentops files programmatically for GovCloud compatibility
-2. Runs the evaluation
-3. Provides results summary
+2. Runs the ADK evaluation
+3. Runs LLM-as-Judge semantic evaluation
+4. Provides results summary
 
 Usage:
     python govcloud_eval.py --setup             # Apply patches
     python govcloud_eval.py --evaluate          # Run ADK evaluation
+    python govcloud_eval.py --judge             # Run LLM-as-Judge evaluation
     python govcloud_eval.py --report            # Show results from last run
+    python govcloud_eval.py --all               # Run everything
 """
 
 import json
@@ -26,6 +29,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import importlib.util
+
+# IBM watsonx.ai SDK - for LLM-as-Judge
+try:
+    from ibm_watsonx_ai import Credentials
+    from ibm_watsonx_ai.foundation_models import ModelInference
+    WATSONX_AVAILABLE = True
+except ImportError:
+    WATSONX_AVAILABLE = False
 
 # =============================================================================
 # CONFIGURATION
@@ -667,19 +678,365 @@ def cmd_report(config: Dict[str, Any], args) -> int:
 
 
 # =============================================================================
+# LLM AS JUDGE
+# =============================================================================
+
+def get_watsonx_model(config: Dict[str, Any]):
+    """Initialize WatsonX model for LLM judge."""
+    if not WATSONX_AVAILABLE:
+        print("ERROR: ibm-watsonx-ai package not installed.")
+        print("Install with: pip install ibm-watsonx-ai")
+        sys.exit(1)
+
+    # Get API key from config or environment
+    watsonx_config = config.get("watsonx", {})
+    api_key = watsonx_config.get("api_key") or os.getenv("WATSONX_API_KEY") or os.getenv("WXO_API_KEY")
+
+    if not api_key:
+        print("ERROR: WatsonX API key not found.")
+        print("Set it in govcloud_config.yaml under 'watsonx.api_key'")
+        print("Or set environment variable: WATSONX_API_KEY")
+        sys.exit(1)
+
+    # Get URL - use GovCloud URL by default
+    url = watsonx_config.get("url") or os.getenv("WATSONX_URL") or "https://us-south.ml.cloud.ibm.com"
+    project_id = watsonx_config.get("project_id") or os.getenv("WATSONX_PROJECT_ID") or "skills-flow"
+
+    # Get model - use same model as llm_judge from config
+    models = config.get("models", {})
+    model_id = models.get("llm_judge", "meta-llama/llama-3-2-90b-vision-instruct")
+
+    credentials = Credentials(url=url, api_key=api_key)
+
+    model = ModelInference(
+        model_id=model_id,
+        credentials=credentials,
+        project_id=project_id
+    )
+    return model, model_id
+
+
+def call_watsonx_llm(model, prompt: str) -> str:
+    """Call WatsonX LLM and return response text."""
+    params = {
+        "decoding_method": "greedy",
+        "max_new_tokens": 500,
+        "temperature": 0.0,
+        "stop_sequences": ["\n\n\n"]
+    }
+    response = model.generate_text(prompt=prompt, params=params)
+    return response
+
+
+def llm_judge_evaluate(
+    model,
+    question: str,
+    expected_answer: str,
+    agent_response: str,
+    model_id: str
+) -> Dict[str, Any]:
+    """
+    Use LLM as a Judge to evaluate if agent response is correct.
+
+    Compares agent response against expected answer semantically.
+    Returns verdict (CORRECT/PARTIALLY_CORRECT/INCORRECT) and score (0-1).
+    """
+    judge_prompt = f"""You are an expert evaluation judge for a health benefits Q&A system.
+Your task is to evaluate if an AI agent's response correctly answers a question about employee benefits.
+
+EVALUATION CRITERIA:
+1. CORRECTNESS: Does the response contain factually correct information matching the expected answer?
+2. COMPLETENESS: Does it cover the key points from the expected answer?
+3. RELEVANCE: Does it directly address the question asked?
+4. NO HALLUCINATION: Does it avoid making up false information not in the expected answer?
+
+QUESTION:
+{question}
+
+EXPECTED ANSWER (Ground Truth):
+{expected_answer}
+
+AGENT'S ACTUAL RESPONSE:
+{agent_response}
+
+INSTRUCTIONS:
+- Compare the AGENT'S RESPONSE against the EXPECTED ANSWER
+- The agent doesn't need to match word-for-word, but must convey the same key information
+- If the agent provides additional helpful context beyond the expected answer, that's OK
+- If the agent contradicts or omits key information from the expected answer, mark as incorrect
+
+Respond with ONLY a JSON object (no markdown, no explanation outside JSON):
+{{
+    "verdict": "CORRECT" or "PARTIALLY_CORRECT" or "INCORRECT",
+    "score": <float between 0.0 and 1.0>,
+    "correctness": <float 0-1>,
+    "completeness": <float 0-1>,
+    "relevance": <float 0-1>,
+    "reasoning": "<brief explanation of your evaluation>"
+}}
+"""
+
+    try:
+        result_text = call_watsonx_llm(model, judge_prompt)
+
+        # Handle potential markdown code blocks
+        if result_text.startswith("```"):
+            result_text = result_text.split("```")[1]
+            if result_text.startswith("json"):
+                result_text = result_text[4:]
+
+        # Find JSON in response
+        json_start = result_text.find("{")
+        json_end = result_text.rfind("}") + 1
+        if json_start >= 0 and json_end > json_start:
+            result_text = result_text[json_start:json_end]
+
+        result = json.loads(result_text)
+
+        # Ensure required fields
+        result.setdefault("verdict", "INCORRECT")
+        result.setdefault("score", 0.0)
+        result.setdefault("reasoning", "No reasoning provided")
+
+        return {
+            "success": True,
+            "verdict": result["verdict"],
+            "score": float(result["score"]),
+            "correctness": float(result.get("correctness", result["score"])),
+            "completeness": float(result.get("completeness", result["score"])),
+            "relevance": float(result.get("relevance", result["score"])),
+            "reasoning": result["reasoning"],
+            "model": model_id,
+            "provider": "watsonx"
+        }
+
+    except json.JSONDecodeError as e:
+        return {
+            "success": False,
+            "verdict": "ERROR",
+            "score": 0.0,
+            "reasoning": f"Failed to parse LLM response as JSON: {str(e)}",
+            "raw_response": result_text if 'result_text' in dir() else None
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "verdict": "ERROR",
+            "score": 0.0,
+            "reasoning": f"LLM Judge error: {str(e)}"
+        }
+
+
+def load_ground_truth(ground_truth_dir: Path) -> Dict[str, Dict]:
+    """Load ground truth files that have expected answers."""
+    ground_truth = {}
+
+    if not ground_truth_dir.exists():
+        return ground_truth
+
+    for gt_file in ground_truth_dir.glob("*.json"):
+        try:
+            with open(gt_file, encoding='utf-8') as f:
+                data = json.load(f)
+
+            question = data.get("starting_sentence", "")
+            if not question:
+                continue
+
+            # Extract expected response and keywords from goal_details
+            expected_response = ""
+            keywords = []
+            for detail in data.get("goal_details", []):
+                if detail.get("type") == "text" or detail.get("name") == "summarize":
+                    expected_response = detail.get("response", "")
+                    keywords = detail.get("keywords", [])
+                    break
+
+            ground_truth[question.lower()] = {
+                "question": question,
+                "expected_response": expected_response,
+                "keywords": keywords,
+                "source_file": gt_file.name
+            }
+        except Exception as e:
+            print(f"  Warning: Could not load {gt_file.name}: {e}")
+
+    return ground_truth
+
+
+def cmd_judge(config: Dict[str, Any], args) -> int:
+    """Run LLM-as-Judge evaluation on existing results."""
+    print(f"\n{'='*60}")
+    print("  LLM AS JUDGE EVALUATION")
+    print(f"{'='*60}")
+
+    # Check if watsonx is available
+    if not WATSONX_AVAILABLE:
+        print("\nERROR: ibm-watsonx-ai package not installed.")
+        print("Install with: pip install ibm-watsonx-ai")
+        return 1
+
+    # Initialize WatsonX model
+    try:
+        model, model_id = get_watsonx_model(config)
+        print(f"\nLLM Judge Model: {model_id}")
+    except Exception as e:
+        print(f"\nERROR: Failed to initialize WatsonX model: {e}")
+        return 1
+
+    paths = config.get("paths", {})
+    test_dir = Path(paths.get("test_cases", "./test_data"))
+    results_dir = Path(paths.get("output_dir", "./eval_results_govcloud"))
+
+    # Load ground truth with expected answers
+    print(f"Loading ground truth from: {test_dir}")
+    ground_truth = load_ground_truth(test_dir)
+    print(f"Loaded {len(ground_truth)} ground truth entries")
+
+    if not ground_truth:
+        print("\nWARNING: No ground truth files found with expected answers.")
+        print("Make sure your test case JSON files have a 'response' field in goal_details.")
+        return 1
+
+    # Find evaluation results (messages directory)
+    messages_dirs = list(results_dir.rglob("messages"))
+    if not messages_dirs:
+        print("\nERROR: No evaluation results found. Run --evaluate first.")
+        return 1
+
+    messages_dir = sorted(messages_dirs)[-1]  # Latest
+    print(f"Reading results from: {messages_dir}")
+
+    # Process each result
+    judge_results = []
+    processed = 0
+
+    for result_file in sorted(messages_dir.glob("*.json")):
+        # Skip metrics and analyze files
+        if "metrics" in result_file.name or "analyze" in result_file.name:
+            continue
+
+        try:
+            with open(result_file, encoding='utf-8') as f:
+                result_data = json.load(f)
+
+            # Extract question and agent response
+            if isinstance(result_data, list):
+                messages = result_data
+            else:
+                messages = result_data.get("messages", [])
+
+            question = ""
+            agent_response = ""
+
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get("role") == "user" and not question:
+                    question = msg.get("content", "")
+                elif msg.get("role") == "assistant" and msg.get("type") == "text" and not agent_response:
+                    content = msg.get("content", "")
+                    if content and "unfortunately" not in content.lower():
+                        agent_response = content
+
+            if not question or not agent_response:
+                continue
+
+            # Find matching ground truth
+            gt = ground_truth.get(question.lower())
+
+            if gt and gt.get("expected_response"):
+                print(f"\n  Evaluating: {question[:50]}...")
+
+                judge_result = llm_judge_evaluate(
+                    model=model,
+                    question=question,
+                    expected_answer=gt["expected_response"],
+                    agent_response=agent_response,
+                    model_id=model_id
+                )
+
+                result_entry = {
+                    "question": question,
+                    "expected_answer": gt["expected_response"][:200] + "..." if len(gt["expected_response"]) > 200 else gt["expected_response"],
+                    "agent_response": agent_response[:200] + "..." if len(agent_response) > 200 else agent_response,
+                    "llm_judge": judge_result,
+                    "source_file": result_file.name,
+                    "ground_truth_file": gt.get("source_file", "")
+                }
+
+                judge_results.append(result_entry)
+                processed += 1
+
+                # Print result
+                verdict = judge_result.get("verdict", "ERROR")
+                score = judge_result.get("score", 0)
+                symbol = "+" if verdict == "CORRECT" else "~" if verdict == "PARTIALLY_CORRECT" else "-"
+                print(f"    [{symbol}] {verdict} (score: {score:.2f})")
+
+                if args.verbose:
+                    print(f"    Reasoning: {judge_result.get('reasoning', 'N/A')[:100]}...")
+
+        except Exception as e:
+            print(f"  Error processing {result_file.name}: {e}")
+            continue
+
+        if args.limit and processed >= args.limit:
+            break
+
+    # Save judge results
+    judge_results_file = results_dir / "llm_judge_results.json"
+    with open(judge_results_file, "w", encoding='utf-8') as f:
+        json.dump({
+            "timestamp": datetime.now().isoformat(),
+            "model": model_id,
+            "total_evaluated": len(judge_results),
+            "results": judge_results
+        }, f, indent=2)
+
+    print(f"\n{'─'*60}")
+    print(f"Processed {processed} results")
+    print(f"Judge results saved to: {judge_results_file}")
+
+    # Summary
+    if judge_results:
+        correct = sum(1 for r in judge_results if r["llm_judge"].get("verdict") == "CORRECT")
+        partial = sum(1 for r in judge_results if r["llm_judge"].get("verdict") == "PARTIALLY_CORRECT")
+        incorrect = sum(1 for r in judge_results if r["llm_judge"].get("verdict") == "INCORRECT")
+        avg_score = sum(r["llm_judge"].get("score", 0) for r in judge_results) / len(judge_results)
+
+        print(f"\n  LLM JUDGE SUMMARY")
+        print(f"  {'─'*40}")
+        print(f"  Total evaluated:    {len(judge_results)}")
+        print(f"  [+] Correct:        {correct} ({correct/len(judge_results)*100:.1f}%)")
+        print(f"  [~] Partial:        {partial} ({partial/len(judge_results)*100:.1f}%)")
+        print(f"  [-] Incorrect:      {incorrect} ({incorrect/len(judge_results)*100:.1f}%)")
+        print(f"  Average Score:      {avg_score:.2f}")
+        print(f"  {'─'*40}")
+        print(f"\n  LLM JUDGE SCORE: {avg_score*100:.0f}%")
+
+    return 0
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
 def main():
     parser = argparse.ArgumentParser(
-        description="GovCloud Agent Evaluation (with Auto-Patching)",
+        description="GovCloud Agent Evaluation (with Auto-Patching + LLM-as-Judge)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python govcloud_eval.py --setup              # Apply patches
-  python govcloud_eval.py --evaluate           # Run evaluation
-  python govcloud_eval.py --evaluate --limit 1 # Test with 1 case
+  python govcloud_eval.py --evaluate           # Run ADK evaluation
+  python govcloud_eval.py --judge              # Run LLM-as-Judge evaluation
   python govcloud_eval.py --report             # Show results
+  python govcloud_eval.py --all                # Setup + Evaluate + Judge + Report
+
+LLM-as-Judge requires:
+  - pip install ibm-watsonx-ai
+  - Set watsonx.api_key in govcloud_config.yaml OR set WATSONX_API_KEY env var
         """
     )
 
@@ -689,10 +1046,16 @@ Examples:
                         help="Apply patches to agentops files")
     parser.add_argument("--evaluate", action="store_true",
                         help="Run ADK evaluation")
+    parser.add_argument("--judge", action="store_true",
+                        help="Run LLM-as-Judge semantic evaluation")
     parser.add_argument("--report", action="store_true",
                         help="Show results report")
+    parser.add_argument("--all", action="store_true",
+                        help="Run full pipeline: setup + evaluate + judge + report")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit number of test cases")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Show detailed output")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be patched without making changes")
 
@@ -701,23 +1064,28 @@ Examples:
     # Load config
     config = load_yaml_config(Path(args.config))
 
-    if not any([args.setup, args.evaluate, args.report]):
+    if not any([args.setup, args.evaluate, args.judge, args.report, args.all]):
         parser.print_help()
         sys.exit(0)
 
     exit_code = 0
 
-    if args.setup:
+    if args.all or args.setup:
         exit_code = cmd_setup(config, args)
-        if exit_code != 0:
+        if exit_code != 0 and not args.all:
             sys.exit(exit_code)
 
-    if args.evaluate:
+    if args.all or args.evaluate:
         exit_code = cmd_evaluate(config, args)
-        if exit_code != 0:
+        if exit_code != 0 and not args.all:
             sys.exit(exit_code)
 
-    if args.report:
+    if args.all or args.judge:
+        exit_code = cmd_judge(config, args)
+        if exit_code != 0 and not args.all:
+            sys.exit(exit_code)
+
+    if args.all or args.report:
         exit_code = cmd_report(config, args)
 
     sys.exit(exit_code)

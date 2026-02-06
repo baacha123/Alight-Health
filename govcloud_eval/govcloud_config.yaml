@@ -7,6 +7,7 @@
 #   1. Run `orchestrate models list` to see available models
 #   2. Update model IDs if needed (defaults work for most GovCloud instances)
 #   3. Update paths.test_cases to point to your ground truth folder
+#   4. For --judge: Set watsonx.api_key below OR set WATSONX_API_KEY env var
 #
 # =============================================================================
 
@@ -37,3 +38,11 @@ evaluation:
   similarity_threshold: 0.8
   enable_fuzzy_matching: false
   is_strict: true
+
+# === WatsonX Settings (for --judge) ===
+# Required for LLM-as-Judge evaluation
+# You can set api_key here OR use WATSONX_API_KEY environment variable
+watsonx:
+  # api_key: "YOUR_WATSONX_API_KEY_HERE"
+  url: "https://us-south.ml.cloud.ibm.com"
+  project_id: "skills-flow"
