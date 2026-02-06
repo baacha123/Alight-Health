@@ -750,14 +750,6 @@ def cmd_generate(config: Dict[str, Any], args) -> int:
 
 def ensure_orchestrate_env(config: Dict[str, Any]) -> bool:
     """Ensure orchestrate environment is activated."""
-    auth = config.get("auth", {})
-    api_key = auth.get("api_key") or os.getenv("WXO_API_KEY") or os.getenv("WATSONX_API_KEY")
-
-    if not api_key:
-        print("\nWARNING: No API key found. Set WXO_API_KEY environment variable.")
-        print("Or run: orchestrate env activate <env-name> --api-key <key>")
-        return False
-
     # Check if orchestrate env is active by running a quick command
     result = subprocess.run(
         ["orchestrate", "env", "list"],
