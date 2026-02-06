@@ -29,11 +29,15 @@ The standard ADK evaluation framework has compatibility issues on GovCloud:
 | Langfuse telemetry | Auth errors without credentials | Auto-disables Langfuse |
 | Config parsing bug | `'dict' object has no attribute` errors | Auto-patches config handling |
 
+### How It Works
+
+The script programmatically patches the ADK files at runtime - no extra files needed. Just the script and your config.
+
 ### What's Included
 
 ```
 govcloud_eval/
-├── govcloud_eval.py        # Main script (patches + evaluates)
+├── govcloud_eval.py        # Main script (auto-patches ADK + runs evaluation)
 ├── govcloud_config.yaml    # Your configuration (edit this)
 ├── README.md               # This file
 ├── sample_test_cases/      # Example test cases
