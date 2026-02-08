@@ -140,11 +140,18 @@ Semantically evaluates agent responses against expected answers using an LLM.
 
 ## Development History
 
+### 2026-02-07: Full End-to-End Working on GovCloud
+- All metrics now populated (Tool Precision/Recall, Text Match, Journey Success)
+- Fix required setting these env vars for subprocess:
+  - `WO_TOKEN` = cached token (for static auth)
+  - `USE_GATEWAY_MODEL_PROVIDER` = TRUE (force GatewayProvider)
+  - `WO_API_KEY` = dummy value (pass validation checks)
+  - Remove `WO_INSTANCE` (prevent ModelProxyProvider selection)
+
 ### 2026-02-07: Fixed ADK Metrics Auth Issue
 - ADK's internal metrics calculation was hitting wrong auth endpoint (iam.platform.saas.ibm.com)
-- Fix: Set `WO_TOKEN` env var before running evaluation
-- GatewayProvider checks for `WO_TOKEN` and uses it as static token (skips exchange)
-- This makes ALL ADK provider instances use the cached token
+- Root cause: ModelProxyProvider doesn't support static tokens, only GatewayProvider does
+- Fix: Force GatewayProvider + set dummy WO_API_KEY + use WO_TOKEN for actual auth
 
 ### 2026-02-07: Fresh Environment Test - SUCCESS
 - Tested on brand new venv on GovCloud Windows
