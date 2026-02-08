@@ -140,6 +140,11 @@ Semantically evaluates agent responses against expected answers using an LLM.
 
 ## Development History
 
+### 2026-02-07: Simplified Docs & Config
+- Removed watsonx api_key/url from config (not needed - uses orchestrate CLI cache)
+- Simplified README to 4 steps
+- Config now has clear 3-step setup in header
+
 ### 2026-02-07: LLM-as-Judge Working on GovCloud
 - **Problem**: 401 Unauthorized errors on GovCloud
 - **Tried**:
