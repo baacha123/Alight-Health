@@ -140,6 +140,14 @@ Semantically evaluates agent responses against expected answers using an LLM.
 
 ## Development History
 
+### 2026-02-07: README Updated with FedRAMP Setup Instructions
+- Added complete FedRAMP environment setup steps (11 steps total)
+- Included full `fedramp_activate.py` script using typer and ibm_watsonx_orchestrate imports
+- Users update line 63 with their `.pem` certificate path
+- Commands use correct format: `orchestrate env add -n <name> -u <url> --type mcsp`
+- Activation: `python fedramp_activate.py <env-name> --api-key <key>`
+- Added skip note for users already logged in
+
 ### 2026-02-07: Full End-to-End Working on GovCloud
 - All metrics now populated (Tool Precision/Recall, Text Match, Journey Success)
 - Fix required setting these env vars for subprocess:
