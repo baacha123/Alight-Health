@@ -140,13 +140,18 @@ Semantically evaluates agent responses against expected answers using an LLM.
 
 ## Development History
 
+### 2026-02-07: Fixed ADK Metrics Auth Issue
+- ADK's internal metrics calculation was hitting wrong auth endpoint (iam.platform.saas.ibm.com)
+- Fix: Set `WO_TOKEN` env var before running evaluation
+- GatewayProvider checks for `WO_TOKEN` and uses it as static token (skips exchange)
+- This makes ALL ADK provider instances use the cached token
+
 ### 2026-02-07: Fresh Environment Test - SUCCESS
 - Tested on brand new venv on GovCloud Windows
 - All 4 patches applied successfully
 - Agent evaluation ran correctly
 - LLM-as-Judge: 100% CORRECT
 - Report: 100% PASS RATE
-- Minor: ADK internal metrics hit wrong auth endpoint (iam.platform.saas.ibm.com) - doesn't affect results
 
 ### 2026-02-07: Simplified Docs & Config
 - Removed watsonx api_key/url from config (not needed - uses orchestrate CLI cache)
