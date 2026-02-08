@@ -638,8 +638,12 @@ def cmd_evaluate(config: Dict[str, Any], args) -> int:
     env = os.environ.copy()
     if cached_token:
         env["WO_TOKEN"] = cached_token
-        # Remove WO_API_KEY to prevent token exchange attempts
+        # Force GatewayProvider (not ModelProxyProvider) which supports static tokens
+        env["USE_GATEWAY_MODEL_PROVIDER"] = "TRUE"
+        # Remove vars that might trigger wrong provider selection
         env.pop("WO_API_KEY", None)
+        env.pop("WO_INSTANCE", None)
+        env.pop("WATSONX_APIKEY", None)
 
     start_time = datetime.now()
     result = subprocess.run(cmd, env=env)
