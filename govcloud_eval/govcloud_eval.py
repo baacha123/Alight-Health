@@ -699,14 +699,60 @@ def is_govcloud_url(url: str) -> bool:
     return "ibmforusgov.com" in url if url else False
 
 
+def get_orchestrate_cached_token() -> Optional[str]:
+    """Read token from orchestrate CLI's cached credentials file."""
+    try:
+        import yaml
+
+        # Get active environment from config
+        config_path = Path.home() / ".config" / "orchestrate" / "config.yaml"
+        if not config_path.exists():
+            return None
+
+        with open(config_path, encoding='utf-8') as f:
+            config = yaml.safe_load(f) or {}
+
+        active_env = config.get("context", {}).get("active_environment")
+        if not active_env:
+            return None
+
+        # Read token from credentials cache
+        creds_path = Path.home() / ".cache" / "orchestrate" / "credentials.yaml"
+        if not creds_path.exists():
+            return None
+
+        with open(creds_path, encoding='utf-8') as f:
+            creds = yaml.safe_load(f) or {}
+
+        # Token is at auth.{env}.wxo_mcsp_token
+        auth = creds.get("auth", {})
+        env_auth = auth.get(active_env, {})
+        token = env_auth.get("wxo_mcsp_token")
+
+        if token:
+            return token
+
+    except Exception:
+        pass
+
+    return None
+
+
 def get_access_token(api_key: str, instance_url: str) -> str:
-    """Exchange API key for access token, or use ADK's tenant_setup for orchestrate envs."""
+    """Get access token - tries orchestrate cache first, then token exchange."""
     global _cached_token, _token_refresh_time
     import time
 
     # Return cached token if still valid
     if _cached_token and time.time() < _token_refresh_time:
         return _cached_token
+
+    # Try to read from orchestrate CLI's cached credentials (works for all envs)
+    cached_token = get_orchestrate_cached_token()
+    if cached_token:
+        _cached_token = cached_token
+        _token_refresh_time = time.time() + 3000  # Refresh in ~50 min
+        return cached_token
 
     # Try to use ADK's tenant_setup (same as orchestrate CLI uses)
     try:
