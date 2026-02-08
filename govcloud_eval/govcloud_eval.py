@@ -587,6 +587,12 @@ def cmd_evaluate(config: Dict[str, Any], args) -> int:
         print("  orchestrate env activate <env-name> --api-key <your-key>")
         return 1
 
+    # Set WO_TOKEN env var so ALL ADK providers use static token (no exchange)
+    cached_token = get_orchestrate_cached_token()
+    if cached_token:
+        os.environ["WO_TOKEN"] = cached_token
+        print("Using cached orchestrate token for evaluation")
+
     # Verify patches are applied
     if not verify_patches(config):
         print("\nPatches not applied. Running setup first...")
