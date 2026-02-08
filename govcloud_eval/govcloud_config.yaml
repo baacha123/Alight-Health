@@ -1,18 +1,19 @@
 # =============================================================================
 # GovCloud Evaluation Configuration
 # =============================================================================
-# This config is used by govcloud_eval.py to run evaluations on GovCloud/FedRAMP.
 #
 # SETUP:
-#   1. Run `orchestrate models list` to see available models
-#   2. Update model IDs if needed (defaults work for most GovCloud instances)
-#   3. Update paths.test_cases to point to your ground truth folder
-#   4. For --judge: Set watsonx.api_key below OR set WATSONX_API_KEY env var
+#   1. Activate orchestrate: orchestrate env activate <env> --api-key <key>
+#   2. Update paths.test_cases to point to your test case folder
+#   3. Run: python govcloud_eval.py --all
+#
+# NOTE: Authentication is automatic - uses your orchestrate CLI credentials
 #
 # =============================================================================
 
 # === Models ===
-# These are GovCloud-available models (405b is NOT available on GovCloud)
+# GovCloud-available models (405b is NOT available on GovCloud)
+# Run `orchestrate models list` to see what's available
 models:
   llm_user: "meta-llama/llama-3-2-90b-vision-instruct"
   llm_judge: "meta-llama/llama-3-2-90b-vision-instruct"
@@ -20,10 +21,7 @@ models:
 
 # === Paths ===
 paths:
-  # Directory containing your ground truth test case JSON files
   test_cases: "./test_data"
-
-  # Directory where evaluation results will be saved
   output_dir: "./eval_results_govcloud"
 
 # === Provider Settings ===
@@ -38,15 +36,3 @@ evaluation:
   similarity_threshold: 0.8
   enable_fuzzy_matching: false
   is_strict: true
-
-# === WatsonX Settings (for --judge) ===
-# Required for LLM-as-Judge evaluation
-# Uses the same Orchestrate Gateway as the ADK evaluation
-#
-# Get these values from your orchestrate environment or auth_config:
-#   api_key: Your WXO API key (or set WXO_API_KEY env var)
-#   url: Your instance URL (e.g., https://origin-api.us-gov-east-1.watson-orchestrate.ibmforusgov.com/instances/YOUR-INSTANCE-ID)
-#
-watsonx:
-  # api_key: "YOUR_WXO_API_KEY_HERE"
-  # url: "https://origin-api.us-gov-east-1.watson-orchestrate.ibmforusgov.com/instances/YOUR-INSTANCE-ID"
