@@ -640,8 +640,10 @@ def cmd_evaluate(config: Dict[str, Any], args) -> int:
         env["WO_TOKEN"] = cached_token
         # Force GatewayProvider (not ModelProxyProvider) which supports static tokens
         env["USE_GATEWAY_MODEL_PROVIDER"] = "TRUE"
-        # Remove vars that might trigger wrong provider selection
-        env.pop("WO_API_KEY", None)
+        # Set dummy API key to pass validation checks in providers that require it
+        # The actual auth will use WO_TOKEN (static token)
+        env["WO_API_KEY"] = "dummy-not-used-wo-token-is-used"
+        # Remove WO_INSTANCE to prevent ModelProxyProvider selection
         env.pop("WO_INSTANCE", None)
         env.pop("WATSONX_APIKEY", None)
 
