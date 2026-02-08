@@ -700,13 +700,24 @@ def is_govcloud_url(url: str) -> bool:
 
 
 def get_access_token(api_key: str, instance_url: str) -> str:
-    """Exchange API key for access token, or return static token for GovCloud."""
+    """Exchange API key for access token, or use ADK's tenant_setup for orchestrate envs."""
     global _cached_token, _token_refresh_time
     import time
 
     # Return cached token if still valid
     if _cached_token and time.time() < _token_refresh_time:
         return _cached_token
+
+    # Try to use ADK's tenant_setup (same as orchestrate CLI uses)
+    try:
+        from agentops.service_instance import tenant_setup
+        token, resolved_url, _ = tenant_setup(service_url=instance_url, tenant_name=None)
+        if token:
+            _cached_token = token
+            _token_refresh_time = time.time() + 3000  # Refresh in ~50 min
+            return token
+    except Exception:
+        pass  # Fall back to manual auth
 
     # GovCloud: use API key directly as static token (no exchange needed)
     if is_govcloud_url(instance_url):
@@ -783,16 +794,10 @@ def call_gateway_llm(config: Dict[str, Any], prompt: str, model_id: str) -> str:
 
     request_id = str(uuid.uuid4())
 
-    # GovCloud uses Basic auth, others use Bearer
-    if is_govcloud_url(instance_url):
-        auth_header = f"Basic {access_token}"
-    else:
-        auth_header = f"Bearer {access_token}"
-
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Authorization": auth_header,
+        "Authorization": f"Bearer {access_token}",
         "x-request-id": request_id,
         "x-gateway-config": json.dumps(x_gateway_config, separators=(",", ":")),
     }
