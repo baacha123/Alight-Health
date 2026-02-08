@@ -677,90 +677,127 @@ def cmd_report(config: Dict[str, Any], args) -> int:
 
 
 # =============================================================================
-# LLM AS JUDGE (via ADK Provider - same auth as --evaluate)
+# LLM AS JUDGE (via Orchestrate Gateway - same auth as ADK)
 # =============================================================================
 
-# Global provider cache
-_llm_provider = None
+# Auth endpoints
+AUTH_ENDPOINT_IBM_CLOUD = "https://iam.cloud.ibm.com/identity/token"
+AUTH_ENDPOINT_SAAS = "https://iam.platform.saas.ibm.com/siusermgr/api/1.0/apikeys/token"
+
+# Token cache
+_cached_token = None
+_token_refresh_time = 0
 
 
-def get_llm_provider(config: Dict[str, Any]):
-    """Get LLM provider using the same mechanism as ADK evaluation."""
-    global _llm_provider
+def is_ibm_cloud_url(url: str) -> bool:
+    """Check if URL is IBM Cloud (vs SaaS/AWS)."""
+    return "cloud.ibm.com" in url if url else False
 
-    if _llm_provider is not None:
-        return _llm_provider
 
-    try:
-        # Use the same agentops provider that ADK uses
-        from agentops.service_provider import get_provider
-        from agentops.wxo_client import get_wxo_client
-        from agentops.arg_configs import ProviderConfig
+def get_access_token(api_key: str, instance_url: str) -> str:
+    """Exchange API key for access token."""
+    global _cached_token, _token_refresh_time
+    import time
 
-        # Get credentials from environment (set by orchestrate env activate)
-        # The wxo_client reads from orchestrate CLI's stored credentials
-        wxo_client = get_wxo_client(None, None, None)
+    # Return cached token if still valid
+    if _cached_token and time.time() < _token_refresh_time:
+        return _cached_token
 
-        models = config.get("models", {})
-        model_id = models.get("llm_judge", "meta-llama/llama-3-2-90b-vision-instruct")
-        embedding_model = models.get("embedding", "sentence-transformers/all-minilm-l6-v2")
+    if is_ibm_cloud_url(instance_url):
+        # IBM Cloud IAM token exchange
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+        data = {
+            "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
+            "apikey": api_key,
+        }
+        response = requests.post(AUTH_ENDPOINT_IBM_CLOUD, headers=headers, data=data, timeout=30)
+    else:
+        # SaaS/AWS token exchange
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        response = requests.post(AUTH_ENDPOINT_SAAS, headers=headers, json={"apikey": api_key}, timeout=30)
 
-        provider_config = ProviderConfig(
-            model_id=model_id,
-            embedding_model_id=embedding_model,
-            provider="gateway",
-            vendor="ibm",
-        )
+    response.raise_for_status()
+    result = response.json()
 
-        _llm_provider = get_provider(
-            config=provider_config,
-            model_id=model_id,
-            token=wxo_client.api_key,
-            instance_url=wxo_client.service_url,
-        )
+    token = result.get("access_token") or result.get("token")
+    if not token:
+        raise RuntimeError(f"No token in response: {result}")
 
-        return _llm_provider
+    # Cache token with 80% of expiry time
+    expires_in = result.get("expires_in", 3600)
+    _cached_token = token
+    _token_refresh_time = time.time() + int(0.8 * expires_in)
 
-    except ImportError as e:
-        raise ImportError(
-            f"Could not import agentops. Make sure ibm-watsonx-orchestrate-adk is installed: {e}"
-        )
-    except Exception as e:
-        raise RuntimeError(f"Failed to initialize LLM provider: {e}")
+    return token
 
 
 def call_gateway_llm(config: Dict[str, Any], prompt: str, model_id: str) -> str:
-    """Call LLM via ADK provider (same auth as evaluation)."""
+    """Call LLM via Orchestrate Gateway (same mechanism as ADK)."""
+    import json
+    import uuid
 
-    provider = get_llm_provider(config)
+    # Get credentials from config or environment
+    watsonx_config = config.get("watsonx", {})
+    api_key = watsonx_config.get("api_key") or os.getenv("WXO_API_KEY") or os.getenv("WO_API_KEY")
+    instance_url = watsonx_config.get("url") or os.getenv("WXO_INSTANCE_URL") or os.getenv("WO_INSTANCE")
 
-    # Use the provider's generate method
-    messages = [
-        {"role": "system", "content": "You are an evaluation judge. Respond only with valid JSON."},
-        {"role": "user", "content": prompt}
-    ]
+    if not api_key:
+        raise ValueError("No API key found. Set WXO_API_KEY or WO_API_KEY env var")
+    if not instance_url:
+        raise ValueError("No instance URL found. Set WXO_INSTANCE_URL or WO_INSTANCE env var")
 
-    # The provider should have a method to generate responses
-    # Try different method names that providers commonly use
-    if hasattr(provider, 'chat'):
-        response = provider.chat(messages=messages, temperature=0.0, max_tokens=500)
-        if hasattr(response, 'content'):
-            return response.content
-        elif isinstance(response, dict):
-            return response.get('content', str(response))
-        return str(response)
-    elif hasattr(provider, 'generate'):
-        response = provider.generate(prompt=prompt, temperature=0.0, max_tokens=500)
-        if hasattr(response, 'content'):
-            return response.content
-        return str(response)
-    elif hasattr(provider, 'complete'):
-        response = provider.complete(prompt=prompt, temperature=0.0, max_tokens=500)
-        return str(response)
-    else:
-        # Fallback: try calling the provider directly
-        response = provider(messages=messages)
-        return str(response)
+    instance_url = instance_url.rstrip("/")
+
+    # Get access token via exchange
+    access_token = get_access_token(api_key, instance_url)
+
+    # Build gateway URL
+    chat_url = f"{instance_url}/v1/orchestrate/gateway/model/chat/completions"
+
+    # Build x-gateway-config header
+    x_gateway_config = {
+        "strategy": {"mode": "single"},
+        "targets": [{
+            "provider": "watsonx",
+            "api_key": "gateway",
+            "override_params": {"model": model_id}
+        }]
+    }
+
+    request_id = str(uuid.uuid4())
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {access_token}",
+        "x-request-id": request_id,
+        "x-gateway-config": json.dumps(x_gateway_config, separators=(",", ":")),
+    }
+
+    payload = {
+        "model": f"watsonx/{model_id}",
+        "messages": [
+            {"role": "system", "content": "You are an evaluation judge. Respond only with valid JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.0,
+    }
+
+    response = requests.post(chat_url, headers=headers, json=payload, timeout=120)
+    response.raise_for_status()
+
+    result = response.json()
+    choices = result.get("choices", [])
+    if choices and len(choices) > 0:
+        message = choices[0].get("message", {})
+        return message.get("content", "")
+
+    raise RuntimeError(f"Unexpected response format: {result}")
 
 
 def llm_judge_evaluate(
@@ -906,27 +943,25 @@ def cmd_judge(config: Dict[str, Any], args) -> int:
     print("  LLM AS JUDGE EVALUATION")
     print(f"{'='*60}")
 
-    # Check orchestrate environment is active
-    if not ensure_orchestrate_env(config):
-        print("\nTIP: Run this first:")
-        print("  orchestrate env activate <env-name> --api-key <your-key>")
+    # Check for required credentials
+    watsonx_config = config.get("watsonx", {})
+    api_key = watsonx_config.get("api_key") or os.getenv("WXO_API_KEY") or os.getenv("WO_API_KEY")
+    instance_url = watsonx_config.get("url") or os.getenv("WXO_INSTANCE_URL") or os.getenv("WO_INSTANCE")
+
+    if not api_key:
+        print("\nERROR: No API key found.")
+        print("Set one of: WXO_API_KEY, WO_API_KEY env var, or watsonx.api_key in config")
         return 1
 
-    # Initialize the LLM provider (uses same auth as ADK evaluation)
-    try:
-        print("\nInitializing LLM provider (using orchestrate credentials)...")
-        provider = get_llm_provider(config)
-        print("  Provider initialized successfully")
-    except Exception as e:
-        print(f"\nERROR: Failed to initialize LLM provider: {e}")
-        print("\nMake sure:")
-        print("  1. orchestrate env is activated")
-        print("  2. ibm-watsonx-orchestrate-adk is installed")
+    if not instance_url:
+        print("\nERROR: No instance URL found.")
+        print("Set one of: WXO_INSTANCE_URL, WO_INSTANCE env var, or watsonx.url in config")
         return 1
 
     models = config.get("models", {})
     model_id = models.get("llm_judge", "meta-llama/llama-3-2-90b-vision-instruct")
-    print(f"LLM Judge Model: {model_id}")
+    print(f"\nLLM Judge Model: {model_id}")
+    print(f"Gateway: {instance_url}")
 
     paths = config.get("paths", {})
     test_dir = Path(paths.get("test_cases", "./test_data"))
