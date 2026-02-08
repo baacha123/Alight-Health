@@ -634,8 +634,15 @@ def cmd_evaluate(config: Dict[str, Any], args) -> int:
     print(f"\nRunning: {' '.join(cmd)}")
     print(f"{'─'*60}")
 
+    # Pass environment with WO_TOKEN set for static token auth
+    env = os.environ.copy()
+    if cached_token:
+        env["WO_TOKEN"] = cached_token
+        # Remove WO_API_KEY to prevent token exchange attempts
+        env.pop("WO_API_KEY", None)
+
     start_time = datetime.now()
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, env=env)
     duration = (datetime.now() - start_time).total_seconds()
 
     print(f"{'─'*60}")
