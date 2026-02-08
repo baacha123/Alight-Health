@@ -6,7 +6,7 @@ Automated evaluation for IBM watsonx Orchestrate agents on GovCloud/FedRAMP.
 
 ## Quick Start
 
-> **Already logged in?** If you have orchestrate activated and working, skip to [Step 6](#6-edit-config).
+> **Already logged in?** If you have orchestrate activated and working, skip to [Step 10](#10-edit-config).
 
 ---
 
@@ -34,58 +34,60 @@ The ADK has a dependency conflict with arize. Downgrade it:
 pip install arize==7.26.1
 ```
 
-### 5. Add FedRAMP Environment
-```bash
-orchestrate env add <your-env-name> \
-  --url https://dl.watson-orchestrate.ibmforusgov.com \
-  --type shared
-```
-
-### 6. Get Your API Key
+### 5. Get Your API Key
 1. Open the Orchestrate UI in your browser
 2. Click **Settings** (gear icon)
 3. Click **Generate API Key**
 4. Copy the key and save it securely
 
-### 7. Set Up SSL Certificate
-Save your `.pem` certificate file to a known location, then set environment variables:
-```bash
-export SSL_CERT_FILE=/path/to/your/certificate.pem
-export REQUESTS_CA_BUNDLE=/path/to/your/certificate.pem
-```
+### 6. Set Up SSL Certificate
+Save your `.pem` certificate file to a known location.
 
-### 8. Create FedRAMP Activation Script
+### 7. Create FedRAMP Activation Script
 Create a file called `fedramp_activate.py` in this directory:
 ```python
 import subprocess
 import os
+import argparse
 
-# Set your values here
-ENV_NAME = "your-env-name"
-API_KEY = "your-api-key"
-CERT_PATH = "/path/to/your/certificate.pem"  # <-- UPDATE THIS
+# UPDATE THIS with your certificate path
+CERT_PATH = "/path/to/your/certificate.pem"
 
 os.environ["SSL_CERT_FILE"] = CERT_PATH
 os.environ["REQUESTS_CA_BUNDLE"] = CERT_PATH
 
+parser = argparse.ArgumentParser()
+parser.add_argument("env_name", help="Environment name")
+parser.add_argument("--api-key", required=True, help="API key")
+args = parser.parse_args()
+
 subprocess.run([
-    "orchestrate", "env", "activate", ENV_NAME, "--api-key", API_KEY
+    "orchestrate", "env", "activate", args.env_name, "--api-key", args.api_key
 ])
 ```
 
-Update `CERT_PATH` on line 8 with your actual certificate path, then run:
-```bash
-python fedramp_activate.py
-```
+Update `CERT_PATH` on line 6 with your actual certificate path.
 
-### 9. Edit Config
+### 8. Add FedRAMP Environment
+```bash
+orchestrate env add -n <your-env-name> -u https://origin-api.us-gov-east-1.watson-orchestrate.ibmforusgov.com/instances/<your-instance-id> --type mcsp
+```
+Replace `<your-env-name>` with any name you want (e.g., `my-fedramp-env`) and `<your-instance-id>` with your instance ID.
+
+### 9. Activate with FedRAMP Script
+```bash
+python fedramp_activate.py <your-env-name> --api-key <your-api-key>
+```
+Replace `<your-env-name>` and `<your-api-key>` with your values.
+
+### 10. Edit Config
 Open `govcloud_config.yaml` and set your test cases path:
 ```yaml
 paths:
   test_cases: "./your_test_cases"
 ```
 
-### 10. Run
+### 11. Run
 ```bash
 python govcloud_eval.py --all
 ```
