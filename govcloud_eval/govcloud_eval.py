@@ -765,7 +765,7 @@ def call_gateway_llm(config: Dict[str, Any], prompt: str, model_id: str) -> str:
 
     instance_url = instance_url.rstrip("/")
 
-    # Get access token via exchange
+    # Get access token via exchange (or static for GovCloud)
     access_token = get_access_token(api_key, instance_url)
 
     # Build gateway URL
@@ -782,10 +782,17 @@ def call_gateway_llm(config: Dict[str, Any], prompt: str, model_id: str) -> str:
     }
 
     request_id = str(uuid.uuid4())
+
+    # GovCloud uses Basic auth, others use Bearer
+    if is_govcloud_url(instance_url):
+        auth_header = f"Basic {access_token}"
+    else:
+        auth_header = f"Bearer {access_token}"
+
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}",
+        "Authorization": auth_header,
         "x-request-id": request_id,
         "x-gateway-config": json.dumps(x_gateway_config, separators=(",", ":")),
     }
