@@ -694,14 +694,25 @@ def is_ibm_cloud_url(url: str) -> bool:
     return "cloud.ibm.com" in url if url else False
 
 
+def is_govcloud_url(url: str) -> bool:
+    """Check if URL is GovCloud/FedRAMP."""
+    return "ibmforusgov.com" in url if url else False
+
+
 def get_access_token(api_key: str, instance_url: str) -> str:
-    """Exchange API key for access token."""
+    """Exchange API key for access token, or return static token for GovCloud."""
     global _cached_token, _token_refresh_time
     import time
 
     # Return cached token if still valid
     if _cached_token and time.time() < _token_refresh_time:
         return _cached_token
+
+    # GovCloud: use API key directly as static token (no exchange needed)
+    if is_govcloud_url(instance_url):
+        _cached_token = api_key
+        _token_refresh_time = float("inf")  # Static token doesn't expire
+        return api_key
 
     if is_ibm_cloud_url(instance_url):
         # IBM Cloud IAM token exchange
