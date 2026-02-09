@@ -30,10 +30,10 @@ govcloud_venv\Scripts\activate      # Windows
 pip install "ibm-watsonx-orchestrate-adk[agentops]"
 ```
 
-### 4. Fix Arize Version
-The ADK has a dependency conflict with arize. Downgrade it:
+### 4. Install Additional Dependencies
 ```bash
-pip install arize==7.26.1
+pip install arize==7.26.1    # Fix ADK dependency conflict
+pip install openpyxl         # Required for Excel file reading
 ```
 
 ### 5. Get Your API Key
