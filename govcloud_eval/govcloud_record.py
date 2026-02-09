@@ -104,7 +104,7 @@ def get_orchestrate_cached_credentials() -> tuple[Optional[str], Optional[str]]:
 # ADK PATCHING FOR GOVCLOUD COMPATIBILITY
 # =============================================================================
 
-FILES_TO_PATCH = ["record_chat.py", "data_annotator.py"]
+FILES_TO_PATCH = ["record_chat.py", "data_annotator.py", "service_provider/gateway_provider.py"]
 
 
 def find_agentops_package() -> Optional[Path]:
@@ -271,6 +271,90 @@ def get_govcloud_model():
     return content
 
 
+def patch_gateway_provider_py(content: str) -> str:
+    """Patch gateway_provider.py: handle GovCloud URLs with static token auth."""
+
+    # Patch 1: Add GovCloud URL detection function after imports
+    old_imports = '''from agentops.utils.utils import is_ibm_cloud_url
+
+logger = logging.getLogger(__name__)'''
+
+    new_imports = '''from agentops.utils.utils import is_ibm_cloud_url
+
+logger = logging.getLogger(__name__)
+
+# ============ GOVCLOUD FIX: Add GovCloud URL detection ============
+def is_govcloud_url(url: str) -> bool:
+    """Check if URL is for GovCloud/FedRAMP environment."""
+    return "ibmforusgov.com" in url.lower() if url else False
+# ============ END GOVCLOUD FIX ============'''
+
+    content = content.replace(old_imports, new_imports)
+
+    # Patch 2: In _resolve_auth_mode_and_url, return static mode for GovCloud BEFORE falling through to saas
+    old_resolve = '''        if self.is_ibm_cloud:
+            return "ibm_iam", AUTH_ENDPOINT_IBM_CLOUD
+        else:
+            return "saas", AUTH_ENDPOINT_AWS'''
+
+    new_resolve = '''        # ============ GOVCLOUD FIX: Handle GovCloud URLs ============
+        if is_govcloud_url(self.instance_url):
+            # GovCloud uses static token, but if we get here, force static mode
+            logger.info("[d b]GovCloud detected - should use static token auth")
+            return "static", ""
+        # ============ END GOVCLOUD FIX ============
+
+        if self.is_ibm_cloud:
+            return "ibm_iam", AUTH_ENDPOINT_IBM_CLOUD
+        else:
+            return "saas", AUTH_ENDPOINT_AWS'''
+
+    content = content.replace(old_resolve, new_resolve)
+
+    # Patch 3: In get_token, handle "static" auth_mode
+    old_get_token_start = '''    def get_token(self):
+        headers = {}
+        post_args = {}
+        timeout = 10
+        exchange_url = self.auth_url
+
+        if self.auth_mode == "ibm_iam":'''
+
+    new_get_token_start = '''    def get_token(self):
+        # ============ GOVCLOUD FIX: Handle static auth mode ============
+        if self.auth_mode == "static":
+            # For GovCloud, try to get token from cached credentials
+            try:
+                import yaml
+                import os
+                config_path = os.path.expanduser("~/.config/orchestrate/config.yaml")
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f) or {}
+                active_env = cfg.get("context", {}).get("active_environment")
+                if active_env:
+                    creds_path = os.path.expanduser("~/.cache/orchestrate/credentials.yaml")
+                    with open(creds_path, "r", encoding="utf-8") as f:
+                        creds = yaml.safe_load(f) or {}
+                    token = creds.get("auth", {}).get(active_env, {}).get("wxo_mcsp_token")
+                    if token:
+                        return token, float("inf")
+            except Exception as e:
+                logger.warning(f"[d b]Failed to read GovCloud token from cache: {e}")
+            raise RuntimeError("GovCloud requires cached token. Run: orchestrate env activate <env> --api-key <key>")
+        # ============ END GOVCLOUD FIX ============
+
+        headers = {}
+        post_args = {}
+        timeout = 10
+        exchange_url = self.auth_url
+
+        if self.auth_mode == "ibm_iam":'''
+
+    content = content.replace(old_get_token_start, new_get_token_start)
+
+    return content
+
+
 def apply_patches() -> bool:
     """Apply patches to ADK files for GovCloud compatibility."""
     print("\n[Checking ADK patches...]")
@@ -305,6 +389,8 @@ def apply_patches() -> bool:
                 content = patch_record_chat_py(content)
             elif filename == "data_annotator.py":
                 content = patch_data_annotator_py(content)
+            elif filename == "service_provider/gateway_provider.py":
+                content = patch_gateway_provider_py(content)
             else:
                 continue
 
