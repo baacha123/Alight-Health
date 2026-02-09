@@ -193,7 +193,13 @@ def run_record_command(output_dir: Path):
     print(f"Instance: {instance_url}")
     print(f"Token: {'Yes' if token else 'No'}")
 
-    # For GovCloud, set MODEL_OVERRIDE (405b not available)
+    # Set environment variables for ADK
+    # WO_TOKEN: Enables static token auth (bypasses token exchange)
+    # WO_INSTANCE: Sets the instance URL
+    # MODEL_OVERRIDE: Override model for GovCloud (405b not available)
+    os.environ["WO_TOKEN"] = token
+    os.environ["WO_INSTANCE"] = instance_url
+
     if is_govcloud_url(instance_url):
         config = load_yaml_config(DEFAULT_CONFIG_FILE)
         model_id = config.get("models", {}).get("llm_judge", "meta-llama/llama-3-2-90b-vision-instruct")
