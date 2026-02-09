@@ -4,13 +4,13 @@ GovCloud Recording & Test Case Creator
 ========================================
 Create test cases from chat conversations with LLM keyword extraction.
 
-This script patches the ADK's record_chat.py for GovCloud compatibility,
-then uses the ADK's recording functionality.
+Works on both commercial and GovCloud environments by setting ADK-native
+environment variables (WO_TOKEN, WO_INSTANCE, MODEL_OVERRIDE).
 
 Usage:
-    python govcloud_record.py --record              # Start live recording (patches ADK first)
+    python govcloud_record.py --record              # Start live recording via ADK
     python govcloud_record.py --manual              # Create from pasted conversation
-    python govcloud_record.py --enhance ./recordings  # Enhance existing files
+    python govcloud_record.py --enhance ./recordings  # Enhance existing files with LLM keywords
     python govcloud_record.py --list ./recordings   # List recorded files
 """
 
@@ -101,11 +101,8 @@ def get_orchestrate_cached_credentials() -> tuple[Optional[str], Optional[str]]:
 
 
 # =============================================================================
-# ADK PATCHING FOR GOVCLOUD COMPATIBILITY
+# ADK PATCHING (OPTIONAL - for debugging)
 # =============================================================================
-
-FILES_TO_PATCH = ["record_chat.py", "data_annotator.py", "service_provider/gateway_provider.py"]
-
 
 def find_agentops_package() -> Optional[Path]:
     """Find the agentops package in the current environment."""
@@ -115,311 +112,16 @@ def find_agentops_package() -> Optional[Path]:
             return Path(spec.origin).parent
     except (ImportError, AttributeError):
         pass
-
-    for path in sys.path:
-        agentops_path = Path(path) / "agentops"
-        if agentops_path.exists() and (agentops_path / "__init__.py").exists():
-            return agentops_path
-
     return None
 
 
-def check_file_patched(file_path: Path) -> bool:
-    """Check if a file has already been patched."""
-    if not file_path.exists():
-        return False
-    try:
-        content = file_path.read_text(encoding='utf-8')
-        return "GOVCLOUD FIX" in content
-    except Exception:
-        return False
-
-
-def patch_record_chat_py(content: str) -> str:
-    """Patch record_chat.py: use 90b model for GovCloud instead of hardcoded 405b."""
-
-    # Patch 1: Add GovCloud URL detection helper function after imports
-    old_imports = '''from agentops.utils.utils import is_saas_url
-from agentops.wxo_client import WXOClient, get_wxo_client'''
-
-    new_imports = '''from agentops.utils.utils import is_saas_url
-from agentops.wxo_client import WXOClient, get_wxo_client
-
-# ============ GOVCLOUD FIX: Helper to detect GovCloud URLs ============
-def is_govcloud_url(url: str) -> bool:
-    """Check if URL is for GovCloud/FedRAMP environment."""
-    return "ibmforusgov.com" in url.lower() if url else False
-
-
-def get_govcloud_model():
-    """Get the model to use for GovCloud (405b is not available)."""
-    return os.environ.get("GOVCLOUD_MODEL", "meta-llama/llama-3-2-90b-vision-instruct")
-# ============ END GOVCLOUD FIX ============'''
-
-    content = content.replace(old_imports, new_imports)
-
-    # Patch 2: Replace the hardcoded 405b model in generate_story function
-    old_provider = '''    provider = get_provider(
-        model_id="meta-llama/llama-3-405b-instruct",
-        params={
-            "min_new_tokens": 0,
-            "decoding_method": "greedy",
-            "max_new_tokens": 256,
-        },
-        **extra_kwargs,
-    )'''
-
-    new_provider = '''    # ============ GOVCLOUD FIX: Use 90b model for GovCloud instead of hardcoded 405b ============
-    if instance_url and is_govcloud_url(instance_url):
-        model_id = get_govcloud_model()
-        rich.print(f"[blue]INFO:[/blue] GovCloud detected, using model: {model_id}")
-    else:
-        model_id = "meta-llama/llama-3-405b-instruct"
-    # ============ END GOVCLOUD FIX ============
-
-    provider = get_provider(
-        model_id=model_id,
-        params={
-            "min_new_tokens": 0,
-            "decoding_method": "greedy",
-            "max_new_tokens": 256,
-        },
-        **extra_kwargs,
-    )'''
-
-    content = content.replace(old_provider, new_provider)
-
-    # Patch 3: Set WO_TOKEN env var in _record function for static token auth
-    old_token_setup = '''    if config.token is None:
-        from agentops.service_instance import tenant_setup
-
-        token, _, _ = tenant_setup(config.service_url, config.tenant_name)
-        config.token = token
-    wxo_client = get_wxo_client('''
-
-    new_token_setup = '''    if config.token is None:
-        from agentops.service_instance import tenant_setup
-
-        token, _, _ = tenant_setup(config.service_url, config.tenant_name)
-        config.token = token
-
-    # ============ GOVCLOUD FIX: Set WO_TOKEN env var for static token auth ============
-    if config.token:
-        os.environ["WO_TOKEN"] = config.token
-        rich.print("[blue]INFO:[/blue] Using cached token for authentication")
-    # ============ END GOVCLOUD FIX ============
-
-    wxo_client = get_wxo_client('''
-
-    content = content.replace(old_token_setup, new_token_setup)
-
-    return content
-
-
-def patch_data_annotator_py(content: str) -> str:
-    """Patch data_annotator.py: use 90b model for GovCloud instead of hardcoded 405b."""
-
-    # Patch 1: Add GovCloud URL detection helper function after imports
-    old_imports = '''from agentops.type import Message, OrchestrateDataset'''
-
-    new_imports = '''from agentops.type import Message, OrchestrateDataset
-
-# ============ GOVCLOUD FIX: Helper to detect GovCloud URLs ============
-import os
-
-def is_govcloud_url(url: str) -> bool:
-    """Check if URL is for GovCloud/FedRAMP environment."""
-    return "ibmforusgov.com" in url.lower() if url else False
-
-
-def get_govcloud_model():
-    """Get the model to use for GovCloud (405b is not available)."""
-    return os.environ.get("GOVCLOUD_MODEL", "meta-llama/llama-3-2-90b-vision-instruct")
-# ============ END GOVCLOUD FIX ============'''
-
-    content = content.replace(old_imports, new_imports)
-
-    # Patch 2: Replace the get_provider call in _process_summarization to use GovCloud model
-    old_provider = '''                provider = get_provider(
-                    model_id=self.keywords_generation_config.model_id,
-                    params={
-                        "min_new_tokens": 0,
-                        "decoding_method": "greedy",
-                        "max_new_tokens": 256,
-                    },
-                    **extra_kwargs,
-                )'''
-
-    new_provider = '''                # ============ GOVCLOUD FIX: Use 90b model for GovCloud ============
-                model_to_use = self.keywords_generation_config.model_id
-                if instance_url and is_govcloud_url(instance_url):
-                    model_to_use = get_govcloud_model()
-                # ============ END GOVCLOUD FIX ============
-
-                provider = get_provider(
-                    model_id=model_to_use,
-                    params={
-                        "min_new_tokens": 0,
-                        "decoding_method": "greedy",
-                        "max_new_tokens": 256,
-                    },
-                    **extra_kwargs,
-                )'''
-
-    content = content.replace(old_provider, new_provider)
-
-    return content
-
-
-def patch_gateway_provider_py(content: str) -> str:
-    """Patch gateway_provider.py: handle GovCloud URLs with static token auth."""
-
-    # Patch 1: Add GovCloud URL detection function after imports
-    old_imports = '''from agentops.utils.utils import is_ibm_cloud_url
-
-logger = logging.getLogger(__name__)'''
-
-    new_imports = '''from agentops.utils.utils import is_ibm_cloud_url
-
-logger = logging.getLogger(__name__)
-
-# ============ GOVCLOUD FIX: Add GovCloud URL detection ============
-def is_govcloud_url(url: str) -> bool:
-    """Check if URL is for GovCloud/FedRAMP environment."""
-    return "ibmforusgov.com" in url.lower() if url else False
-# ============ END GOVCLOUD FIX ============'''
-
-    content = content.replace(old_imports, new_imports)
-
-    # Patch 2: In _resolve_auth_mode_and_url, return static mode for GovCloud BEFORE falling through to saas
-    old_resolve = '''        if self.is_ibm_cloud:
-            return "ibm_iam", AUTH_ENDPOINT_IBM_CLOUD
-        else:
-            return "saas", AUTH_ENDPOINT_AWS'''
-
-    new_resolve = '''        # ============ GOVCLOUD FIX: Handle GovCloud URLs ============
-        if is_govcloud_url(self.instance_url):
-            # GovCloud uses static token, but if we get here, force static mode
-            logger.info("[d b]GovCloud detected - should use static token auth")
-            return "static", ""
-        # ============ END GOVCLOUD FIX ============
-
-        if self.is_ibm_cloud:
-            return "ibm_iam", AUTH_ENDPOINT_IBM_CLOUD
-        else:
-            return "saas", AUTH_ENDPOINT_AWS'''
-
-    content = content.replace(old_resolve, new_resolve)
-
-    # Patch 3: In get_token, handle "static" auth_mode
-    old_get_token_start = '''    def get_token(self):
-        headers = {}
-        post_args = {}
-        timeout = 10
-        exchange_url = self.auth_url
-
-        if self.auth_mode == "ibm_iam":'''
-
-    new_get_token_start = '''    def get_token(self):
-        # ============ GOVCLOUD FIX: Handle static auth mode ============
-        if self.auth_mode == "static":
-            # For GovCloud, try to get token from cached credentials
-            try:
-                import yaml
-                import os
-                config_path = os.path.expanduser("~/.config/orchestrate/config.yaml")
-                with open(config_path, "r", encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f) or {}
-                active_env = cfg.get("context", {}).get("active_environment")
-                if active_env:
-                    creds_path = os.path.expanduser("~/.cache/orchestrate/credentials.yaml")
-                    with open(creds_path, "r", encoding="utf-8") as f:
-                        creds = yaml.safe_load(f) or {}
-                    token = creds.get("auth", {}).get(active_env, {}).get("wxo_mcsp_token")
-                    if token:
-                        return token, float("inf")
-            except Exception as e:
-                logger.warning(f"[d b]Failed to read GovCloud token from cache: {e}")
-            raise RuntimeError("GovCloud requires cached token. Run: orchestrate env activate <env> --api-key <key>")
-        # ============ END GOVCLOUD FIX ============
-
-        headers = {}
-        post_args = {}
-        timeout = 10
-        exchange_url = self.auth_url
-
-        if self.auth_mode == "ibm_iam":'''
-
-    content = content.replace(old_get_token_start, new_get_token_start)
-
-    return content
-
-
-def apply_patches() -> bool:
-    """Apply patches to ADK files for GovCloud compatibility."""
-    print("\n[Checking ADK patches...]")
-
+def show_adk_info():
+    """Show ADK package info for debugging."""
     agentops_path = find_agentops_package()
-    if not agentops_path:
-        print("  WARNING: Could not find agentops package.")
-        print("  Make sure ibm-watsonx-orchestrate-adk is installed.")
-        return False
-
-    all_success = True
-
-    for filename in FILES_TO_PATCH:
-        file_path = agentops_path / filename
-
-        if not file_path.exists():
-            print(f"  WARNING: {filename} not found")
-            continue
-
-        # Check if already patched
-        if check_file_patched(file_path):
-            print(f"  {filename}: Already patched")
-            continue
-
-        try:
-            # Read original content
-            content = file_path.read_text(encoding='utf-8')
-            original_content = content
-
-            # Apply appropriate patch
-            if filename == "record_chat.py":
-                content = patch_record_chat_py(content)
-            elif filename == "data_annotator.py":
-                content = patch_data_annotator_py(content)
-            elif filename == "service_provider/gateway_provider.py":
-                content = patch_gateway_provider_py(content)
-            else:
-                continue
-
-            # Check if patch actually changed anything
-            if content == original_content:
-                print(f"  WARNING: {filename} - pattern not found (ADK version may differ)")
-                all_success = False
-                continue
-
-            # Create backup
-            backup_path = file_path.with_suffix(".py.original.bak")
-            if not backup_path.exists():
-                shutil.copy2(file_path, backup_path)
-
-            # Write patched content
-            file_path.write_text(content, encoding='utf-8')
-
-            # Clear pycache
-            pycache_dir = file_path.parent / "__pycache__"
-            if pycache_dir.exists():
-                shutil.rmtree(pycache_dir, ignore_errors=True)
-
-            print(f"  {filename}: Patched successfully")
-
-        except Exception as e:
-            print(f"  ERROR patching {filename}: {e}")
-            all_success = False
-
-    return all_success
+    if agentops_path:
+        print(f"ADK agentops path: {agentops_path}")
+    else:
+        print("ADK agentops: NOT FOUND")
 
 
 # =============================================================================
@@ -498,21 +200,36 @@ JSON array:"""
 # =============================================================================
 
 def run_record_command(output_dir: Path):
-    """Run the ADK record command (after patching)."""
+    """Run the ADK record command with GovCloud-compatible environment."""
     print(f"\n{'='*60}")
     print("GOVCLOUD RECORDING SESSION")
     print(f"{'='*60}")
 
-    # Apply patch before running ADK command
-    apply_patches()
-
-    # Set WO_TOKEN for static token auth
+    # Get cached credentials from orchestrate CLI
     cached_token, cached_url = get_orchestrate_cached_credentials()
-    if cached_token:
-        os.environ["WO_TOKEN"] = cached_token
-        print(f"\nUsing cached token for authentication")
-    if cached_url:
-        print(f"Instance: {cached_url}")
+
+    if not cached_token or not cached_url:
+        print("\nERROR: No credentials found.")
+        print("Run: orchestrate env activate <env> --api-key <key>")
+        sys.exit(1)
+
+    # Set environment variables for static token auth
+    # The ADK's GatewayProvider already supports these natively:
+    # - WO_TOKEN: Static bearer token (bypasses auth endpoint)
+    # - WO_INSTANCE: Instance URL (bypasses tenant_setup)
+    # - MODEL_OVERRIDE: Override the model ID
+    os.environ["WO_TOKEN"] = cached_token
+    os.environ["WO_INSTANCE"] = cached_url
+    print(f"\nUsing cached token for authentication")
+    print(f"Instance: {cached_url}")
+
+    # For GovCloud, override the model (405b is not available)
+    if is_govcloud_url(cached_url):
+        config = load_yaml_config(DEFAULT_CONFIG_FILE)
+        model_id = config.get("models", {}).get("llm_judge", "meta-llama/llama-3-2-90b-vision-instruct")
+        os.environ["MODEL_OVERRIDE"] = model_id
+        os.environ["GOVCLOUD_MODEL"] = model_id
+        print(f"GovCloud detected, using model: {model_id}")
 
     print(f"Output: {output_dir}")
     print("\n1. Open Orchestrate Chat UI in browser")
@@ -688,7 +405,19 @@ def main():
     parser.add_argument("--question", type=str, help="Question (for --manual)")
     parser.add_argument("--response", type=str, help="Response (for --manual)")
     parser.add_argument("--skip-llm", action="store_true", help="Skip LLM calls")
+    parser.add_argument("--debug", action="store_true", help="Show debug info")
     args = parser.parse_args()
+
+    if args.debug:
+        print("=== DEBUG INFO ===")
+        show_adk_info()
+        token, url = get_orchestrate_cached_credentials()
+        print(f"Cached token: {'Yes' if token else 'No'}")
+        print(f"Instance URL: {url or 'Not found'}")
+        print(f"Is GovCloud: {is_govcloud_url(url) if url else 'N/A'}")
+        print("==================")
+        if not (args.record or args.manual or args.enhance or args.list):
+            return
 
     config = load_yaml_config(args.config)
     paths = config.get("paths", {})
