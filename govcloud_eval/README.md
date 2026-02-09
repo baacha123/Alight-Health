@@ -230,6 +230,8 @@ Record live chat sessions with your agent and automatically create test cases.
 python govcloud_record.py --record
 ```
 
+This uses native recording (no ADK dependency) - works on both commercial and GovCloud.
+
 ### Step 2: Chat with Your Agent
 
 1. Open Orchestrate Chat UI in your browser
@@ -382,7 +384,7 @@ eval_results_govcloud/
 | "Could not find agentops" | Run `pip install "ibm-watsonx-orchestrate-adk[agentops]"` |
 | SSL certificate error | Set `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` env vars |
 | "CERTIFICATE_VERIFY_FAILED" | Check your `.pem` file path in `fedramp_activate.py` |
-| Recording not capturing | Use `--manual` mode instead |
+| Recording not capturing | Ensure you started a NEW chat after running `--record` |
 
 ---
 

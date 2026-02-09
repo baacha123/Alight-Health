@@ -236,6 +236,18 @@ Status: WORKING
 
 ## Future Work / TODO
 
+### Sprint 2-3: Keyword Generation
+- [ ] **Add `--generate` command**: Generate test cases from Excel with LLM keyword extraction
+  - Read Excel with questions + expected answers
+  - Use LLM to auto-extract keywords from expected answer
+  - Output complete test case JSON files
+  - Makes scaling to 75-100 test cases easy without manual keyword work
+
+### Sprint 4: CI/CD & Evaluation Agent
+- [ ] **CI/CD Pipeline**: GitHub workflows calling evaluation scripts
+- [ ] **Evaluation Agent**: Wrap script as Orchestrate agent (prompt-based eval, no code)
+
+### Other Enhancements
 - [ ] Add batch processing for large test sets
 - [ ] Add progress bar for --judge
 - [ ] Add retry logic for transient failures

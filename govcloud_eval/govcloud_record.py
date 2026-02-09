@@ -4,8 +4,11 @@ GovCloud Recording & Test Case Creator
 ========================================
 Create test cases from chat conversations with LLM keyword extraction.
 
+This script patches the ADK's record_chat.py for GovCloud compatibility,
+then uses the ADK's recording functionality.
+
 Usage:
-    python govcloud_record.py --record              # Start live recording (ADK)
+    python govcloud_record.py --record              # Start live recording (patches ADK first)
     python govcloud_record.py --manual              # Create from pasted conversation
     python govcloud_record.py --enhance ./recordings  # Enhance existing files
     python govcloud_record.py --list ./recordings   # List recorded files
@@ -16,7 +19,9 @@ import os
 import sys
 import argparse
 import subprocess
+import shutil
 import uuid
+import importlib.util
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -50,15 +55,15 @@ def load_yaml_config(config_path: Path) -> Dict[str, Any]:
 # =============================================================================
 
 def is_govcloud_url(url: str) -> bool:
-    return "ibmforusgov.com" in url.lower()
+    return "ibmforusgov.com" in url.lower() if url else False
 
 
 def is_ibm_cloud_url(url: str) -> bool:
-    return "cloud.ibm.com" in url.lower()
+    return "cloud.ibm.com" in url.lower() if url else False
 
 
 # =============================================================================
-# AUTHENTICATION (same as govcloud_eval.py)
+# AUTHENTICATION
 # =============================================================================
 
 def get_orchestrate_cached_credentials() -> tuple[Optional[str], Optional[str]]:
@@ -93,6 +98,174 @@ def get_orchestrate_cached_credentials() -> tuple[Optional[str], Optional[str]]:
     except Exception:
         pass
     return None, None
+
+
+# =============================================================================
+# ADK PATCHING FOR RECORD_CHAT.PY
+# =============================================================================
+
+def find_agentops_package() -> Optional[Path]:
+    """Find the agentops package in the current environment."""
+    try:
+        spec = importlib.util.find_spec("agentops")
+        if spec and spec.origin:
+            return Path(spec.origin).parent
+    except (ImportError, AttributeError):
+        pass
+
+    for path in sys.path:
+        agentops_path = Path(path) / "agentops"
+        if agentops_path.exists() and (agentops_path / "__init__.py").exists():
+            return agentops_path
+
+    return None
+
+
+def check_record_chat_patched(file_path: Path) -> bool:
+    """Check if record_chat.py has already been patched."""
+    if not file_path.exists():
+        return False
+    try:
+        content = file_path.read_text(encoding='utf-8')
+        return "GOVCLOUD FIX" in content and "is_govcloud_url" in content
+    except Exception:
+        return False
+
+
+def patch_record_chat_py(content: str) -> str:
+    """Patch record_chat.py: use 90b model for GovCloud instead of hardcoded 405b."""
+
+    # Patch 1: Add GovCloud URL detection helper function after imports
+    old_imports = '''from agentops.utils.utils import is_saas_url
+from agentops.wxo_client import WXOClient, get_wxo_client'''
+
+    new_imports = '''from agentops.utils.utils import is_saas_url
+from agentops.wxo_client import WXOClient, get_wxo_client
+
+# ============ GOVCLOUD FIX: Helper to detect GovCloud URLs ============
+def is_govcloud_url(url: str) -> bool:
+    """Check if URL is for GovCloud/FedRAMP environment."""
+    return "ibmforusgov.com" in url.lower() if url else False
+
+
+def get_govcloud_model():
+    """Get the model to use for GovCloud (405b is not available)."""
+    return os.environ.get("GOVCLOUD_MODEL", "meta-llama/llama-3-2-90b-vision-instruct")
+# ============ END GOVCLOUD FIX ============'''
+
+    content = content.replace(old_imports, new_imports)
+
+    # Patch 2: Replace the hardcoded 405b model in generate_story function
+    old_provider = '''    provider = get_provider(
+        model_id="meta-llama/llama-3-405b-instruct",
+        params={
+            "min_new_tokens": 0,
+            "decoding_method": "greedy",
+            "max_new_tokens": 256,
+        },
+        **extra_kwargs,
+    )'''
+
+    new_provider = '''    # ============ GOVCLOUD FIX: Use 90b model for GovCloud instead of hardcoded 405b ============
+    if instance_url and is_govcloud_url(instance_url):
+        model_id = get_govcloud_model()
+        rich.print(f"[blue]INFO:[/blue] GovCloud detected, using model: {model_id}")
+    else:
+        model_id = "meta-llama/llama-3-405b-instruct"
+    # ============ END GOVCLOUD FIX ============
+
+    provider = get_provider(
+        model_id=model_id,
+        params={
+            "min_new_tokens": 0,
+            "decoding_method": "greedy",
+            "max_new_tokens": 256,
+        },
+        **extra_kwargs,
+    )'''
+
+    content = content.replace(old_provider, new_provider)
+
+    # Patch 3: Set WO_TOKEN env var in _record function for static token auth
+    old_token_setup = '''    if config.token is None:
+        from agentops.service_instance import tenant_setup
+
+        token, _, _ = tenant_setup(config.service_url, config.tenant_name)
+        config.token = token
+    wxo_client = get_wxo_client('''
+
+    new_token_setup = '''    if config.token is None:
+        from agentops.service_instance import tenant_setup
+
+        token, _, _ = tenant_setup(config.service_url, config.tenant_name)
+        config.token = token
+
+    # ============ GOVCLOUD FIX: Set WO_TOKEN env var for static token auth ============
+    if config.token:
+        os.environ["WO_TOKEN"] = config.token
+        rich.print("[blue]INFO:[/blue] Using cached token for authentication")
+    # ============ END GOVCLOUD FIX ============
+
+    wxo_client = get_wxo_client('''
+
+    content = content.replace(old_token_setup, new_token_setup)
+
+    return content
+
+
+def apply_record_chat_patch() -> bool:
+    """Apply patch to ADK's record_chat.py for GovCloud compatibility."""
+    print("\n[Checking ADK patches...]")
+
+    agentops_path = find_agentops_package()
+    if not agentops_path:
+        print("  WARNING: Could not find agentops package.")
+        print("  Make sure ibm-watsonx-orchestrate-adk is installed.")
+        return False
+
+    record_chat_path = agentops_path / "record_chat.py"
+    if not record_chat_path.exists():
+        print(f"  WARNING: record_chat.py not found at {record_chat_path}")
+        return False
+
+    # Check if already patched
+    if check_record_chat_patched(record_chat_path):
+        print("  record_chat.py: Already patched")
+        return True
+
+    try:
+        # Read original content
+        content = record_chat_path.read_text(encoding='utf-8')
+        original_content = content
+
+        # Apply patch
+        content = patch_record_chat_py(content)
+
+        # Check if patch actually changed anything
+        if content == original_content:
+            print("  WARNING: Patch pattern not found (ADK version may differ)")
+            print("  Recording may fail on GovCloud. Consider using --manual mode.")
+            return False
+
+        # Create backup
+        backup_path = record_chat_path.with_suffix(".py.original.bak")
+        if not backup_path.exists():
+            shutil.copy2(record_chat_path, backup_path)
+
+        # Write patched content
+        record_chat_path.write_text(content, encoding='utf-8')
+
+        # Clear pycache
+        pycache_dir = record_chat_path.parent / "__pycache__"
+        if pycache_dir.exists():
+            shutil.rmtree(pycache_dir, ignore_errors=True)
+
+        print("  record_chat.py: Patched successfully")
+        return True
+
+    except Exception as e:
+        print(f"  ERROR patching record_chat.py: {e}")
+        return False
 
 
 # =============================================================================
@@ -171,11 +344,23 @@ JSON array:"""
 # =============================================================================
 
 def run_record_command(output_dir: Path):
-    """Run the ADK record command."""
+    """Run the ADK record command (after patching)."""
     print(f"\n{'='*60}")
     print("GOVCLOUD RECORDING SESSION")
     print(f"{'='*60}")
-    print(f"\nOutput: {output_dir}")
+
+    # Apply patch before running ADK command
+    apply_record_chat_patch()
+
+    # Set WO_TOKEN for static token auth
+    cached_token, cached_url = get_orchestrate_cached_credentials()
+    if cached_token:
+        os.environ["WO_TOKEN"] = cached_token
+        print(f"\nUsing cached token for authentication")
+    if cached_url:
+        print(f"Instance: {cached_url}")
+
+    print(f"Output: {output_dir}")
     print("\n1. Open Orchestrate Chat UI in browser")
     print("2. Start a NEW chat session")
     print("3. Chat with your agent")
@@ -253,7 +438,9 @@ def enhance_recordings(input_path: Path, model_id: str, copy_to: Path = None, sk
 
     files = [input_path] if input_path.is_file() else list(input_path.glob("*_annotated_data.json"))
     if not files:
-        print(f"\nNo annotated files found in: {input_path}")
+        files = list(input_path.glob("*.json"))
+    if not files:
+        print(f"\nNo JSON files found in: {input_path}")
         return []
 
     print(f"\nFound {len(files)} file(s)")
@@ -266,7 +453,7 @@ def enhance_recordings(input_path: Path, model_id: str, copy_to: Path = None, sk
                 data = json.load(f)
 
             for detail in data.get("goal_details", []):
-                if detail.get("type") == "text" and detail.get("name") == "summarize":
+                if detail.get("type") == "text" or detail.get("name") == "summarize":
                     response = detail.get("response", "")
                     original = detail.get("keywords", [])
 
@@ -312,6 +499,7 @@ def list_recordings(recordings_dir: Path):
         return
 
     files = list(recordings_dir.glob("*_annotated_data.json")) + list(recordings_dir.glob("*.json"))
+    files = list(set(files))
     if not files:
         print(f"\nNo recordings found in: {recordings_dir}")
         return
