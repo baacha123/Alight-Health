@@ -101,8 +101,11 @@ def get_orchestrate_cached_credentials() -> tuple[Optional[str], Optional[str]]:
 
 
 # =============================================================================
-# ADK PATCHING FOR RECORD_CHAT.PY
+# ADK PATCHING FOR GOVCLOUD COMPATIBILITY
 # =============================================================================
+
+FILES_TO_PATCH = ["record_chat.py", "data_annotator.py"]
+
 
 def find_agentops_package() -> Optional[Path]:
     """Find the agentops package in the current environment."""
@@ -121,13 +124,13 @@ def find_agentops_package() -> Optional[Path]:
     return None
 
 
-def check_record_chat_patched(file_path: Path) -> bool:
-    """Check if record_chat.py has already been patched."""
+def check_file_patched(file_path: Path) -> bool:
+    """Check if a file has already been patched."""
     if not file_path.exists():
         return False
     try:
         content = file_path.read_text(encoding='utf-8')
-        return "GOVCLOUD FIX" in content and "is_govcloud_url" in content
+        return "GOVCLOUD FIX" in content
     except Exception:
         return False
 
@@ -213,8 +216,63 @@ def get_govcloud_model():
     return content
 
 
-def apply_record_chat_patch() -> bool:
-    """Apply patch to ADK's record_chat.py for GovCloud compatibility."""
+def patch_data_annotator_py(content: str) -> str:
+    """Patch data_annotator.py: use 90b model for GovCloud instead of hardcoded 405b."""
+
+    # Patch 1: Add GovCloud URL detection helper function after imports
+    old_imports = '''from agentops.type import Message, OrchestrateDataset'''
+
+    new_imports = '''from agentops.type import Message, OrchestrateDataset
+
+# ============ GOVCLOUD FIX: Helper to detect GovCloud URLs ============
+import os
+
+def is_govcloud_url(url: str) -> bool:
+    """Check if URL is for GovCloud/FedRAMP environment."""
+    return "ibmforusgov.com" in url.lower() if url else False
+
+
+def get_govcloud_model():
+    """Get the model to use for GovCloud (405b is not available)."""
+    return os.environ.get("GOVCLOUD_MODEL", "meta-llama/llama-3-2-90b-vision-instruct")
+# ============ END GOVCLOUD FIX ============'''
+
+    content = content.replace(old_imports, new_imports)
+
+    # Patch 2: Replace the get_provider call in _process_summarization to use GovCloud model
+    old_provider = '''                provider = get_provider(
+                    model_id=self.keywords_generation_config.model_id,
+                    params={
+                        "min_new_tokens": 0,
+                        "decoding_method": "greedy",
+                        "max_new_tokens": 256,
+                    },
+                    **extra_kwargs,
+                )'''
+
+    new_provider = '''                # ============ GOVCLOUD FIX: Use 90b model for GovCloud ============
+                model_to_use = self.keywords_generation_config.model_id
+                if instance_url and is_govcloud_url(instance_url):
+                    model_to_use = get_govcloud_model()
+                # ============ END GOVCLOUD FIX ============
+
+                provider = get_provider(
+                    model_id=model_to_use,
+                    params={
+                        "min_new_tokens": 0,
+                        "decoding_method": "greedy",
+                        "max_new_tokens": 256,
+                    },
+                    **extra_kwargs,
+                )'''
+
+    content = content.replace(old_provider, new_provider)
+
+    return content
+
+
+def apply_patches() -> bool:
+    """Apply patches to ADK files for GovCloud compatibility."""
     print("\n[Checking ADK patches...]")
 
     agentops_path = find_agentops_package()
@@ -223,49 +281,59 @@ def apply_record_chat_patch() -> bool:
         print("  Make sure ibm-watsonx-orchestrate-adk is installed.")
         return False
 
-    record_chat_path = agentops_path / "record_chat.py"
-    if not record_chat_path.exists():
-        print(f"  WARNING: record_chat.py not found at {record_chat_path}")
-        return False
+    all_success = True
 
-    # Check if already patched
-    if check_record_chat_patched(record_chat_path):
-        print("  record_chat.py: Already patched")
-        return True
+    for filename in FILES_TO_PATCH:
+        file_path = agentops_path / filename
 
-    try:
-        # Read original content
-        content = record_chat_path.read_text(encoding='utf-8')
-        original_content = content
+        if not file_path.exists():
+            print(f"  WARNING: {filename} not found")
+            continue
 
-        # Apply patch
-        content = patch_record_chat_py(content)
+        # Check if already patched
+        if check_file_patched(file_path):
+            print(f"  {filename}: Already patched")
+            continue
 
-        # Check if patch actually changed anything
-        if content == original_content:
-            print("  WARNING: Patch pattern not found (ADK version may differ)")
-            print("  Recording may fail on GovCloud. Consider using --manual mode.")
-            return False
+        try:
+            # Read original content
+            content = file_path.read_text(encoding='utf-8')
+            original_content = content
 
-        # Create backup
-        backup_path = record_chat_path.with_suffix(".py.original.bak")
-        if not backup_path.exists():
-            shutil.copy2(record_chat_path, backup_path)
+            # Apply appropriate patch
+            if filename == "record_chat.py":
+                content = patch_record_chat_py(content)
+            elif filename == "data_annotator.py":
+                content = patch_data_annotator_py(content)
+            else:
+                continue
 
-        # Write patched content
-        record_chat_path.write_text(content, encoding='utf-8')
+            # Check if patch actually changed anything
+            if content == original_content:
+                print(f"  WARNING: {filename} - pattern not found (ADK version may differ)")
+                all_success = False
+                continue
 
-        # Clear pycache
-        pycache_dir = record_chat_path.parent / "__pycache__"
-        if pycache_dir.exists():
-            shutil.rmtree(pycache_dir, ignore_errors=True)
+            # Create backup
+            backup_path = file_path.with_suffix(".py.original.bak")
+            if not backup_path.exists():
+                shutil.copy2(file_path, backup_path)
 
-        print("  record_chat.py: Patched successfully")
-        return True
+            # Write patched content
+            file_path.write_text(content, encoding='utf-8')
 
-    except Exception as e:
-        print(f"  ERROR patching record_chat.py: {e}")
-        return False
+            # Clear pycache
+            pycache_dir = file_path.parent / "__pycache__"
+            if pycache_dir.exists():
+                shutil.rmtree(pycache_dir, ignore_errors=True)
+
+            print(f"  {filename}: Patched successfully")
+
+        except Exception as e:
+            print(f"  ERROR patching {filename}: {e}")
+            all_success = False
+
+    return all_success
 
 
 # =============================================================================
@@ -350,7 +418,7 @@ def run_record_command(output_dir: Path):
     print(f"{'='*60}")
 
     # Apply patch before running ADK command
-    apply_record_chat_patch()
+    apply_patches()
 
     # Set WO_TOKEN for static token auth
     cached_token, cached_url = get_orchestrate_cached_credentials()
