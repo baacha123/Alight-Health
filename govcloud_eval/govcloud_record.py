@@ -200,7 +200,7 @@ JSON array:"""
 # =============================================================================
 
 def run_record_command(output_dir: Path):
-    """Run the ADK record command with GovCloud-compatible environment."""
+    """Run recording with GovCloud-compatible environment."""
     print(f"\n{'='*60}")
     print("GOVCLOUD RECORDING SESSION")
     print(f"{'='*60}")
@@ -213,11 +213,8 @@ def run_record_command(output_dir: Path):
         print("Run: orchestrate env activate <env> --api-key <key>")
         sys.exit(1)
 
-    # Set environment variables for static token auth
-    # The ADK's GatewayProvider already supports these natively:
-    # - WO_TOKEN: Static bearer token (bypasses auth endpoint)
-    # - WO_INSTANCE: Instance URL (bypasses tenant_setup)
-    # - MODEL_OVERRIDE: Override the model ID
+    # Set environment variables BEFORE importing ADK modules
+    # This ensures GatewayProvider sees WO_TOKEN and uses static auth
     os.environ["WO_TOKEN"] = cached_token
     os.environ["WO_INSTANCE"] = cached_url
     print(f"\nUsing cached token for authentication")
@@ -239,14 +236,34 @@ def run_record_command(output_dir: Path):
     print(f"\n{'-'*60}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    cmd = ["orchestrate", "evaluations", "record", "--output-dir", str(output_dir)]
 
+    # Import ADK AFTER setting environment variables
     try:
-        subprocess.run(cmd, check=False)
-    except KeyboardInterrupt:
-        print("\nRecording stopped.")
+        from agentops.arg_configs import ChatRecordingConfig
+        from agentops.record_chat import record_chats
 
-    files = list(output_dir.glob("*_annotated_data.json"))
+        # Create config with our credentials
+        record_config = ChatRecordingConfig(
+            service_url=cached_url,
+            token=cached_token,
+            output_dir=str(output_dir),
+        )
+
+        print("\nStarting ADK recording directly...")
+        record_chats(record_config)
+
+    except ImportError as e:
+        print(f"\nADK import failed: {e}")
+        print("Falling back to subprocess method...")
+
+        # Fallback: run via subprocess
+        cmd = ["orchestrate", "evaluations", "record", "--output-dir", str(output_dir)]
+        try:
+            subprocess.run(cmd, check=False)
+        except KeyboardInterrupt:
+            print("\nRecording stopped.")
+
+    files = list(output_dir.glob("**/*_annotated_data.json"))
     if files:
         print(f"\nRecorded {len(files)} file(s). Enhance with:")
         print(f"  python govcloud_record.py --enhance {output_dir}")
