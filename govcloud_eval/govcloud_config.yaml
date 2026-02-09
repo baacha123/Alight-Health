@@ -23,6 +23,13 @@ models:
 paths:
   test_cases: "./test_data"
   output_dir: "./eval_results_govcloud"
+  excel_input: "./questions.xlsx"
+  recordings: "./recordings"
+
+# === Agent Settings (for generate/record) ===
+agent:
+  name: "alight_supervisor_agent"
+  tool: "call_verint_studio_for_hr_and_benefits_questions"
 
 # === Provider Settings ===
 provider:
