@@ -196,13 +196,15 @@ def run_record_command(output_dir: Path):
         print(f"  python govcloud_record.py --enhance {output_dir}")
 
 
-def manual_create_test_case(agent_name: str, tool_name: str, question: str, response: str,
-                            output_dir: Path, model_id: str, skip_llm: bool = False) -> Path:
+def manual_create_test_case(agent_name: str, question: str, response: str,
+                            output_dir: Path, model_id: str, tool_name: str = None,
+                            skip_llm: bool = False) -> Path:
     """Manually create a test case from a conversation."""
     print(f"\n{'='*60}")
     print("MANUAL TEST CASE CREATION")
     print(f"{'='*60}")
     print(f"\nAgent: {agent_name}")
+    print(f"Tool: {tool_name or '(auto - response-only evaluation)'}")
     print(f"Question: {question[:60]}...")
 
     if skip_llm:
@@ -213,17 +215,24 @@ def manual_create_test_case(agent_name: str, tool_name: str, question: str, resp
 
     print(f"Keywords: {keywords}")
 
-    tool_call_name = f"{tool_name}-1"
     test_case = {
         "agent": agent_name,
-        "goals": {tool_call_name: ["summarize"]},
-        "goal_details": [
-            {"type": "tool_call", "name": tool_call_name, "tool_name": tool_name, "args": {"query": question}},
-            {"name": "summarize", "type": "text", "response": response, "keywords": keywords}
-        ],
         "story": f"User asking: {question[:50]}...",
         "starting_sentence": question
     }
+
+    if tool_name:
+        tool_call_name = f"{tool_name}-1"
+        test_case["goals"] = {tool_call_name: ["summarize"]}
+        test_case["goal_details"] = [
+            {"type": "tool_call", "name": tool_call_name, "tool_name": tool_name, "args": {"query": question}},
+            {"name": "summarize", "type": "text", "response": response, "keywords": keywords}
+        ]
+    else:
+        test_case["goals"] = {"summarize": []}
+        test_case["goal_details"] = [
+            {"name": "summarize", "type": "text", "response": response, "keywords": keywords}
+        ]
 
     output_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{agent_name}_manual_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -346,7 +355,7 @@ def main():
 
     output_dir = args.output_dir or Path(paths.get("recordings", "./recordings"))
     agent_name = args.agent or agent_config.get("name", "alight_supervisor_agent")
-    tool_name = args.tool or agent_config.get("tool", "call_verint_studio_for_hr_and_benefits_questions")
+    tool_name = args.tool or agent_config.get("tool")  # None if not specified
     model_id = models.get("llm_judge", "meta-llama/llama-3-2-90b-vision-instruct")
 
     if args.record:
@@ -370,7 +379,7 @@ def main():
             response = "\n".join(lines)
 
         test_dir = Path(paths.get("test_cases", "./test_data"))
-        manual_create_test_case(agent_name, tool_name, question, response, test_dir, model_id, args.skip_llm)
+        manual_create_test_case(agent_name, question, response, test_dir, model_id, tool_name, args.skip_llm)
 
     elif args.enhance:
         if not args.enhance.exists():

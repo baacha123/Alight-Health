@@ -29,7 +29,7 @@ paths:
 # === Agent Settings (for generate/record) ===
 agent:
   name: "alight_supervisor_agent"
-  tool: "call_verint_studio_for_hr_and_benefits_questions"
+  # tool: "your_tool_name"  # Optional - only needed if you want to test specific tool calls
 
 # === Provider Settings ===
 provider:

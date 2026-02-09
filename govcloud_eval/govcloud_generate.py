@@ -246,20 +246,35 @@ Brief scenario:"""
 # TEST CASE GENERATION
 # =============================================================================
 
-def create_test_case(question: str, expected_answer: str, agent_name: str, tool_name: str,
-                     keywords: List[str], story: str, source_doc: str = None, source_page: str = None) -> Dict[str, Any]:
-    """Create an ADK-compatible test case."""
-    tool_call_name = f"{tool_name}-1"
+def create_test_case(question: str, expected_answer: str, agent_name: str,
+                     keywords: List[str], story: str, tool_name: str = None,
+                     source_doc: str = None, source_page: str = None) -> Dict[str, Any]:
+    """Create an ADK-compatible test case.
+
+    If tool_name is provided, includes tool_call expectation (for Tool Precision/Recall).
+    If tool_name is None, only evaluates final response (for complex multi-tool agents).
+    """
     test_case = {
         "agent": agent_name,
-        "goals": {tool_call_name: ["summarize"]},
-        "goal_details": [
-            {"type": "tool_call", "name": tool_call_name, "tool_name": tool_name, "args": {"query": question}},
-            {"name": "summarize", "type": "text", "response": expected_answer, "keywords": keywords}
-        ],
         "story": story,
         "starting_sentence": question
     }
+
+    if tool_name:
+        # Include tool call expectation
+        tool_call_name = f"{tool_name}-1"
+        test_case["goals"] = {tool_call_name: ["summarize"]}
+        test_case["goal_details"] = [
+            {"type": "tool_call", "name": tool_call_name, "tool_name": tool_name, "args": {"query": question}},
+            {"name": "summarize", "type": "text", "response": expected_answer, "keywords": keywords}
+        ]
+    else:
+        # Response-only evaluation (no tool call expectation)
+        test_case["goals"] = {"summarize": []}
+        test_case["goal_details"] = [
+            {"name": "summarize", "type": "text", "response": expected_answer, "keywords": keywords}
+        ]
+
     if source_doc:
         test_case["source_document"] = source_doc
     if source_page:
@@ -267,8 +282,9 @@ def create_test_case(question: str, expected_answer: str, agent_name: str, tool_
     return test_case
 
 
-def generate_test_cases(excel_path: Path, agent_name: str, tool_name: str, output_dir: Path,
-                        model_id: str, limit: int = None, skip_llm: bool = False) -> List[Path]:
+def generate_test_cases(excel_path: Path, agent_name: str, output_dir: Path,
+                        model_id: str, tool_name: str = None, limit: int = None,
+                        skip_llm: bool = False) -> List[Path]:
     """Generate test case JSON files from Excel."""
     import pandas as pd
 
@@ -277,7 +293,7 @@ def generate_test_cases(excel_path: Path, agent_name: str, tool_name: str, outpu
     print(f"{'='*60}")
     print(f"\nExcel: {excel_path}")
     print(f"Agent: {agent_name}")
-    print(f"Tool: {tool_name}")
+    print(f"Tool: {tool_name or '(auto - response-only evaluation)'}")
     print(f"Output: {output_dir}")
     print(f"Model: {model_id}")
 
@@ -323,8 +339,8 @@ def generate_test_cases(excel_path: Path, agent_name: str, tool_name: str, outpu
         print(f"  Keywords: {keywords}")
 
         test_case = create_test_case(
-            question=question, expected_answer=expected, agent_name=agent_name, tool_name=tool_name,
-            keywords=keywords, story=story,
+            question=question, expected_answer=expected, agent_name=agent_name,
+            keywords=keywords, story=story, tool_name=tool_name,
             source_doc=row.get("source_document") if pd.notna(row.get("source_document")) else None,
             source_page=row.get("source_page") if pd.notna(row.get("source_page")) else None
         )
@@ -388,7 +404,7 @@ def main():
 
     excel_path = args.excel or Path(paths.get("excel_input", "./questions.xlsx"))
     agent_name = args.agent or agent_config.get("name", "alight_supervisor_agent")
-    tool_name = args.tool or agent_config.get("tool", "call_verint_studio_for_hr_and_benefits_questions")
+    tool_name = args.tool or agent_config.get("tool")  # None if not specified
     output_dir = args.output or Path(paths.get("test_cases", "./test_data"))
     model_id = models.get("llm_judge", "meta-llama/llama-3-2-90b-vision-instruct")
 
@@ -406,7 +422,7 @@ def main():
         print("Run: pip install pandas openpyxl requests pyyaml")
         sys.exit(1)
 
-    generate_test_cases(excel_path, agent_name, tool_name, output_dir, model_id, args.limit, args.skip_llm)
+    generate_test_cases(excel_path, agent_name, output_dir, model_id, tool_name, args.limit, args.skip_llm)
 
 
 if __name__ == "__main__":
