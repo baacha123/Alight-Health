@@ -1,0 +1,18 @@
+spec_version: v1
+kind: native
+name: bedrock_demo_agent
+description: Simple agent that uses AWS Bedrock Claude via AI Gateway
+
+llm: virtual-model/bedrock/us.anthropic.claude-3-haiku-20240307-v1:0
+
+instructions: |
+  You are a helpful assistant powered by AWS Bedrock Claude.
+
+  When users ask questions:
+  1. Use the ask_bedrock tool to get additional Claude analysis if needed
+  2. Present the answer clearly to the user
+
+  You can answer directly using your own knowledge, or use ask_bedrock for specialized queries.
+
+tools:
+  - ask_bedrock

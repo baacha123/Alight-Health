@@ -1,0 +1,18 @@
+spec_version: v1
+kind: model
+name: bedrock/us.anthropic.claude-3-haiku-20240307-v1:0
+display_name: AWS Bedrock Claude 3 Haiku
+description: |
+  AWS Bedrock integration for Claude 3 Haiku model.
+  Fast and cost-effective for general Q&A tasks.
+tags:
+  - aws
+  - bedrock
+  - claude
+  - haiku
+model_type: chat
+provider_config:
+  provider: bedrock
+  aws_region: us-east-1
+  aws_access_key_id: YOUR_AWS_ACCESS_KEY_ID
+  aws_secret_access_key: YOUR_AWS_SECRET_ACCESS_KEY
