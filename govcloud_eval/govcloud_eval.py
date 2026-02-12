@@ -666,6 +666,27 @@ def cmd_report(config: Dict[str, Any], args) -> int:
     paths = config.get("paths", {})
     results_dir = Path(paths.get("output_dir", "./eval_results_govcloud"))
 
+    # First, try to read LLM Judge results (our custom evaluation)
+    llm_judge_file = results_dir / "llm_judge_results.json"
+    if llm_judge_file.exists():
+        print(f"\nSource: {llm_judge_file}")
+        with open(llm_judge_file, encoding='utf-8') as f:
+            llm_results = json.load(f)
+
+        total = llm_results.get("total_evaluated", 0)
+        passed = llm_results.get("total_passed", 0)
+        pass_rate = llm_results.get("pass_rate", "0%")
+
+        print(f"\n  RESULTS (LLM Judge)")
+        print(f"  {'─'*40}")
+        print(f"  Total:  {total}")
+        print(f"  Passed: {passed}")
+        print(f"  Failed: {total - passed}")
+        print(f"  {'─'*40}")
+        print(f"\n  PASS RATE: {pass_rate}")
+        return 0
+
+    # Fallback: read ADK's summary_metrics.csv
     import csv
 
     csv_files = list(results_dir.rglob("summary_metrics.csv"))
@@ -684,7 +705,7 @@ def cmd_report(config: Dict[str, Any], args) -> int:
     passed = sum(1 for r in rows if r.get("is_success", "").lower() == "true")
     pass_rate = (passed / total * 100) if total > 0 else 0
 
-    print(f"\n  RESULTS")
+    print(f"\n  RESULTS (ADK Evaluation)")
     print(f"  {'─'*40}")
     print(f"  Total:  {total}")
     print(f"  Passed: {passed} ({pass_rate:.1f}%)")
