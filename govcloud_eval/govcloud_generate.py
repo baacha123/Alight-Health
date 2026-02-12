@@ -256,12 +256,9 @@ def create_test_case(question: str, expected_answer: str, agent_name: str,
     """
     test_case = {
         "agent": agent_name,
+        "story": story,  # Required by ADK
         "starting_sentence": question
     }
-
-    # Only include story if provided (LLM-generated)
-    if story:
-        test_case["story"] = story
 
     if tool_name:
         # Include tool call expectation
@@ -332,12 +329,12 @@ def generate_test_cases(excel_path: Path, agent_name: str, output_dir: Path,
         print(f"\n[{num}/{len(df)}] {question[:50]}...")
 
         if skip_llm:
-            # Simple keyword extraction, no story (faster)
+            # Simple keyword extraction, minimal story (faster, no follow-ups)
             keywords = list(set(w.strip('.,!?()[]"\'') for w in expected.split() if len(w) > 4))[:4]
-            story = None  # No story when skipping LLM
-            print("  (skipping LLM - no story generated)")
+            story = "User asks a single question."  # Minimal story = no follow-ups
+            print("  (skipping LLM - using minimal story)")
         else:
-            # LLM generates smart keywords AND story
+            # LLM generates smart keywords AND detailed story
             print("  Generating story + keywords with LLM...")
             story = generate_story(question, model_id)
             keywords = extract_keywords(expected, model_id)
