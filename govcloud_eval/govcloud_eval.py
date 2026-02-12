@@ -910,6 +910,13 @@ EVALUATION CRITERIA:
 3. RELEVANCE: Does it directly address the question asked?
 4. NO HALLUCINATION: Does it avoid making up false information not in the expected answer?
 
+IMPORTANT - NUMERIC EQUIVALENCES:
+When comparing numbers and time periods, recognize these as EQUIVALENT:
+- "15 days" = "2 weeks and 1 day" (7+7+1=15)
+- "31 days" = "about one month" = "approximately 1 month"
+- "10 days" = "2 weeks" (business days) OR "10 calendar days"
+- Different numeric expressions of the SAME value are CORRECT, not partially correct
+
 QUESTION:
 {question}
 
@@ -922,6 +929,7 @@ AGENT'S ACTUAL RESPONSE:
 INSTRUCTIONS:
 - Compare the AGENT'S RESPONSE against the EXPECTED ANSWER
 - The agent doesn't need to match word-for-word, but must convey the same key information
+- NUMERIC VALUES: If the numbers are mathematically equivalent (e.g., "15 days" vs "2 weeks + 1 day"), mark as CORRECT
 - If the agent provides additional helpful context beyond the expected answer, that's OK
 - If the agent contradicts or omits key information from the expected answer, mark as incorrect
 
@@ -1151,6 +1159,15 @@ def cmd_judge(config: Dict[str, Any], args) -> int:
         if args.limit and processed >= args.limit:
             break
 
+    # Add "passed" field to each result (CORRECT or PARTIALLY_CORRECT with score >= 0.7)
+    for r in judge_results:
+        verdict = r["llm_judge"].get("verdict", "")
+        score = r["llm_judge"].get("score", 0)
+        r["llm_judge"]["passed"] = (verdict == "CORRECT") or (verdict == "PARTIALLY_CORRECT" and score >= 0.7)
+
+    # Calculate pass rate
+    total_passed = sum(1 for r in judge_results if r["llm_judge"].get("passed", False))
+
     # Save judge results
     judge_results_file = results_dir / "llm_judge_results.json"
     with open(judge_results_file, "w", encoding='utf-8') as f:
@@ -1158,6 +1175,8 @@ def cmd_judge(config: Dict[str, Any], args) -> int:
             "timestamp": datetime.now().isoformat(),
             "model": model_id,
             "total_evaluated": len(judge_results),
+            "total_passed": total_passed,
+            "pass_rate": f"{total_passed/len(judge_results)*100:.0f}%" if judge_results else "0%",
             "results": judge_results
         }, f, indent=2)
 
@@ -1172,12 +1191,21 @@ def cmd_judge(config: Dict[str, Any], args) -> int:
         incorrect = sum(1 for r in judge_results if r["llm_judge"].get("verdict") == "INCORRECT")
         avg_score = sum(r["llm_judge"].get("score", 0) for r in judge_results) / len(judge_results)
 
+        # Count PARTIALLY_CORRECT with score >= 0.7 as "passed"
+        partial_passed = sum(1 for r in judge_results
+                            if r["llm_judge"].get("verdict") == "PARTIALLY_CORRECT"
+                            and r["llm_judge"].get("score", 0) >= 0.7)
+        total_passed = correct + partial_passed
+        total_failed = incorrect + (partial - partial_passed)
+
         print(f"\n  LLM JUDGE SUMMARY")
         print(f"  {'─'*40}")
         print(f"  Total evaluated:    {len(judge_results)}")
         print(f"  [+] Correct:        {correct} ({correct/len(judge_results)*100:.1f}%)")
         print(f"  [~] Partial:        {partial} ({partial/len(judge_results)*100:.1f}%)")
         print(f"  [-] Incorrect:      {incorrect} ({incorrect/len(judge_results)*100:.1f}%)")
+        print(f"  {'─'*40}")
+        print(f"  PASSED (Correct + Partial>=0.7): {total_passed}/{len(judge_results)} ({total_passed/len(judge_results)*100:.0f}%)")
         print(f"  Average Score:      {avg_score:.2f}")
         print(f"  {'─'*40}")
         print(f"\n  LLM JUDGE SCORE: {avg_score*100:.0f}%")
