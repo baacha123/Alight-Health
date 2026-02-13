@@ -4,32 +4,37 @@
 #
 # SETUP:
 #   1. Activate orchestrate: orchestrate env activate <env> --api-key <key>
-#   2. Update paths.test_cases to point to your test case folder
-#   3. Run: python govcloud_eval.py --all
+#   2. Update values below (replace all YOUR_* placeholders)
+#   3. Generate test cases: python govcloud_generate.py --config govcloud_config.yaml
+#   4. Run evaluation:      python govcloud_eval.py --all
 #
 # NOTE: Authentication is automatic - uses your orchestrate CLI credentials
+#
+# FLOW: govcloud_generate.py writes test cases to paths.test_cases
+#       govcloud_eval.py reads test cases from the same paths.test_cases
+#       So generate output = eval input (no need to change paths between steps)
 #
 # =============================================================================
 
 # === Models ===
-# GovCloud-available models (405b is NOT available on GovCloud)
-# Run `orchestrate models list` to see what's available
+# Run `orchestrate models list` to see available models in your environment
 models:
-  llm_user: "meta-llama/llama-3-2-90b-vision-instruct"
-  llm_judge: "meta-llama/llama-3-2-90b-vision-instruct"
+  llm_user: "YOUR_MODEL_NAME"          # Replace with model from `orchestrate models list` (e.g. meta-llama/llama-3-2-90b-vision-instruct)
+  llm_judge: "YOUR_MODEL_NAME"         # Replace with model for LLM Judge (can be same as llm_user)
   embedding: "sentence-transformers/all-minilm-l6-v2"
 
 # === Paths ===
+# paths.test_cases is shared: generate writes here, eval reads from here
 paths:
-  test_cases: "./test_data"
-  output_dir: "./eval_results_govcloud"
-  excel_input: "./questions.xlsx"
+  test_cases: "./test_data"             # Output of generate, input for eval
+  output_dir: "./eval_results"          # Where eval results are saved
+  excel_input: "./YOUR_QUESTIONS.xlsx"  # Replace with your Excel file containing test questions
   recordings: "./recordings"
 
 # === Agent Settings (for generate/record) ===
 agent:
-  name: "alight_supervisor_agent"
-  # tool: "your_tool_name"  # Optional - only needed if you want to test specific tool calls
+  name: "YOUR_AGENT_NAME"              # Replace with your agent name from `orchestrate agents list`
+  # tool: "your_tool_name"             # Optional - only needed if you want to test specific tool calls
 
 # === Provider Settings ===
 provider:
