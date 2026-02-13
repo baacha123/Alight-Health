@@ -25,7 +25,21 @@ End-to-end guide for integrating AWS Bedrock models into watsonx Orchestrate via
 
 ---
 
-## Step 2: Create AWS IAM Credentials
+## Step 2: Get AWS Credentials
+
+You have two options. **Option A is recommended** (simpler, scoped to Bedrock only).
+
+### Option A: Bedrock API Key (Recommended)
+
+1. Go to **AWS Console** > **Amazon Bedrock**
+2. Go to **API Keys** (left sidebar)
+3. Click **Generate API key**
+4. Choose **Long-term** (set an expiration) or **Short-term** (up to 12 hours)
+5. Copy the API key
+
+> Bedrock API keys inherit permissions from the IAM user that creates them. If you can use Bedrock in the console, the API key will work. No separate IAM policy needed. Available on both AWS Commercial and GovCloud.
+
+### Option B: IAM Access Keys
 
 1. Go to **AWS Console** > **IAM** > **Users**
 2. Select or create a user for Bedrock access
@@ -48,16 +62,33 @@ End-to-end guide for integrating AWS Bedrock models into watsonx Orchestrate via
 ```
 
 4. Go to **Security Credentials** tab > **Create access key**
-5. Save the following (you will need them in Step 3):
-   - `Access Key ID` (e.g. `AKIA...`)
-   - `Secret Access Key` (shown only once)
-6. Note your **AWS Region** where Bedrock is enabled (e.g. `us-east-1`)
+5. Save the `Access Key ID` and `Secret Access Key`
 
 ---
 
 ## Step 3: Create the Model Configuration File
 
-Create a file called `bedrock_model.yaml` with your credentials and model ID:
+Create a file called `bedrock_model.yaml`.
+
+**If using Option A (Bedrock API Key):**
+
+```yaml
+spec_version: v1
+kind: model
+name: bedrock/YOUR_BEDROCK_MODEL_ID
+display_name: AWS Bedrock Model
+description: |
+  AWS Bedrock model via AI Gateway.
+tags:
+  - aws
+  - bedrock
+model_type: chat
+provider_config:
+  aws_region: YOUR_AWS_REGION
+  api_key: YOUR_BEDROCK_API_KEY
+```
+
+**If using Option B (IAM Access Keys):**
 
 ```yaml
 spec_version: v1
@@ -79,8 +110,7 @@ provider_config:
 Replace the placeholders:
 - `YOUR_BEDROCK_MODEL_ID` - The model ID from your enabled Bedrock models (see table below)
 - `YOUR_AWS_REGION` - Region where Bedrock is enabled (e.g. `us-east-1`)
-- `YOUR_AWS_ACCESS_KEY_ID` - From Step 2
-- `YOUR_AWS_SECRET_ACCESS_KEY` - From Step 2
+- Credentials from Step 2
 
 > **Common Bedrock model IDs** (use whichever you have enabled):
 >
@@ -181,5 +211,6 @@ orchestrate agents remove my_bedrock_agent
 ## Reference
 
 - [AI Gateway Documentation](https://developer.watson-orchestrate.ibm.com/manage-custom-llms)
+- [AWS Bedrock API Keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html)
 - [AWS Bedrock Supported Models](https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html)
 - [AWS IAM Access Keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html)
