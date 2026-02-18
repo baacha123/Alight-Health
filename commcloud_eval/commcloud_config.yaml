@@ -5,13 +5,13 @@
 # SETUP:
 #   1. Activate: orchestrate env activate aws-commercial --api-key <key>
 #   2. Update values below
-#   3. Generate test cases: python govcloud_generate.py --config govcloud_config.yaml
-#   4. Run evaluation:      python govcloud_eval.py --all
+#   3. Generate test cases: python commcloud_generate.py
+#   4. Run evaluation:      python commcloud_eval.py --all
 #
 # NOTE: Authentication is automatic - uses your orchestrate CLI credentials
 #
-# FLOW: govcloud_generate.py writes test cases to paths.test_cases
-#       govcloud_eval.py reads test cases from the same paths.test_cases
+# FLOW: commcloud_generate.py writes test cases to paths.test_cases
+#       commcloud_eval.py reads test cases from the same paths.test_cases
 #       So generate output = eval input (no need to change paths between steps)
 #
 # =============================================================================
