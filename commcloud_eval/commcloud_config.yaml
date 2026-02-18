@@ -1,0 +1,51 @@
+# =============================================================================
+# AWS Commercial Evaluation Configuration
+# =============================================================================
+#
+# SETUP:
+#   1. Activate: orchestrate env activate aws-commercial --api-key <key>
+#   2. Update values below
+#   3. Generate test cases: python govcloud_generate.py --config govcloud_config.yaml
+#   4. Run evaluation:      python govcloud_eval.py --all
+#
+# NOTE: Authentication is automatic - uses your orchestrate CLI credentials
+#
+# FLOW: govcloud_generate.py writes test cases to paths.test_cases
+#       govcloud_eval.py reads test cases from the same paths.test_cases
+#       So generate output = eval input (no need to change paths between steps)
+#
+# =============================================================================
+
+# === Models ===
+# Run `orchestrate models list` to see available models
+# 405b IS available on AWS Commercial (unlike GovCloud)
+models:
+  llm_user: "meta-llama/llama-3-405b-instruct"
+  llm_judge: "meta-llama/llama-3-405b-instruct"
+  embedding: "sentence-transformers/all-minilm-l6-v2"
+
+# === Paths ===
+# paths.test_cases is shared: generate writes here, eval reads from here
+paths:
+  test_cases: "./test_data"
+  output_dir: "./eval_results"
+  excel_input: "./questions.xlsx"
+  recordings: "./recordings"
+
+# === Agent Settings (for generate/record) ===
+agent:
+  name: "alight_supervisor_agent"
+  # tool: "your_tool_name"             # Optional - only needed if you want to test specific tool calls
+
+# === Provider Settings ===
+provider:
+  type: "gateway"
+  vendor: "ibm"
+
+# === Evaluation Settings ===
+evaluation:
+  num_workers: 1
+  n_runs: 1
+  similarity_threshold: 0.8
+  enable_fuzzy_matching: false
+  is_strict: true

@@ -1,0 +1,59 @@
+openapi: 3.0.0
+info:
+  title: Verint MCP Server
+  description: AWS API Gateway to Verint Lambda MCP Server
+  version: 3.1.0
+
+servers:
+  - url: https://bn1jku4pg0.execute-api.us-east-1.amazonaws.com/prod
+    description: AWS Commercial API Gateway (Lambda MCP Server)
+
+paths:
+  /tools/invoke:
+    post:
+      operationId: call_verint_studio_for_hr_and_benefits_questions
+      summary: Call Verint Studio for HR and Benefits Questions
+      description: |
+        Calls Verint Studio through the AWS API Gateway to Lambda MCP Server.
+        Use this for questions about 1099 forms, FMLA, pension, after-tax contributions,
+        benefits enrollment, tax forms, retirement plans, and other HR/benefits topics.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query
+              properties:
+                query:
+                  type: string
+                  description: The user's HR or benefits question to send to Verint Studio
+      responses:
+        '200':
+          description: Successful response with answer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jsonrpc:
+                    type: string
+                    example: "2.0"
+                  id:
+                    type: integer
+                    example: 1
+                  result:
+                    type: object
+                    properties:
+                      content:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              example: text
+                            text:
+                              type: string
+                              description: The answer with markdown formatting and links
