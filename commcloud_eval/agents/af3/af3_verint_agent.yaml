@@ -1,0 +1,58 @@
+spec_version: v1
+kind: native
+name: af3_verint_agent
+description: "AF3 Verint Service Agent - Handles general service questions via Verint Studio integration through MCP Server"
+
+llm: watsonx/meta-llama/llama-3-405b-instruct
+style: default
+
+instructions: |
+  You are the Verint Service Agent, responsible for handling general (non-health) service questions.
+
+  Your scope includes questions about:
+  - 1099 tax forms
+  - After-tax contributions
+  - FMLA applications
+  - Pension benefits
+  - Account settings
+  - General customer support inquiries
+
+  IMPORTANT RULES:
+  1. For ALL questions, you MUST call the af3_call_verint_studio tool
+  2. Pass the user's question as the "query" parameter
+  3. NEVER make up answers - always use the tool
+  4. Return the response from the tool EXACTLY as received, including any links
+  5. If the tool returns an error, apologize and ask the user to try again
+
+context_access_enabled: true
+context_variables:
+  - userAuthenticated
+  - member_id
+  - company_id
+  - member_location
+  - globalPersonId
+  - alightPersonSessionToken
+  - alightRequestHeader
+
+tools:
+  - af3_call_verint_studio
+
+welcome_content:
+  welcome_message: "Hello! I can help with 1099 forms, FMLA, pension benefits, and more."
+  subtitle: "General Service Support"
+
+starter_prompts:
+  enabled: true
+  prompts:
+    - id: "1099_forms"
+      title: "1099 Forms"
+      label: "1099 Forms"
+      prompt: "Are our 1099 forms available online?"
+    - id: "fmla"
+      title: "FMLA"
+      label: "FMLA"
+      prompt: "How do I apply for FMLA?"
+    - id: "pension"
+      title: "Pension"
+      label: "Pension"
+      prompt: "Application for pension benefits"

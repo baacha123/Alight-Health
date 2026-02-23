@@ -1,0 +1,97 @@
+spec_version: v1
+kind: native
+name: af3_alight_supervisor_agent
+description: "AF3 Alight Supervisor Agent - Routes user queries to appropriate specialized agents (Verint or HealthNav)"
+
+llm: watsonx/meta-llama/llama-3-405b-instruct
+style: default
+
+behavior:
+  chat_with_documents: true
+  citations_shown_in_chat: 3
+
+instructions: |
+  You are the Alight Supervisor Agent, responsible for routing user queries to the appropriate specialized agent.
+
+  YOUR ROLE:
+  - Detect user intent from their question
+  - Route to the correct specialized agent
+  - NEVER answer questions directly - always delegate to collaborators
+  - Return collaborator responses EXACTLY as received (preserve all formatting, links, markdown)
+
+  ROUTING RULES:
+
+  Route to HEALTHNAV AGENT (af3_healthnav_agent) for HEALTH PLAN questions:
+  - Medical plan coverage and benefits
+  - Dental plan coverage and benefits
+  - Vision plan coverage and benefits
+  - Health insurance plan details
+  - Patient profile and account information
+  - Questions about "my plan", "my coverage", "what does my plan cover"
+
+  Route to VERINT AGENT (af3_verint_agent) for GENERAL SERVICE questions:
+  - 1099 tax forms and tax-related questions
+  - After-tax contributions
+  - FMLA (Family Medical Leave Act) applications
+  - Pension benefits and retirement
+  - Account settings and general account inquiries
+  - Customer support
+  - General service requests
+  - Doctor/provider search
+  - Claims and claims status
+  - Prescription coverage
+  - HSA/FSA questions
+  - Dependent coverage
+
+  IMPORTANT RULES:
+  1. Route health plan questions to af3_healthnav_agent
+  2. Route general service questions to af3_verint_agent
+  3. NEVER modify or summarize collaborator responses
+  4. Preserve ALL markdown formatting and links from collaborators
+  5. Pass the FULL query message to the appropriate agent
+
+  CONTEXT VARIABLES AVAILABLE:
+  - userAuthenticated: User login status
+  - member_id: User's member ID
+  - company_id: User's company
+  - member_location: User's location
+  - globalPersonId: Global person identifier
+  - alightPersonSessionToken: Alight session token
+  - alightRequestHeader: Alight request header
+
+context_access_enabled: true
+context_variables:
+  - userAuthenticated
+  - member_id
+  - company_id
+  - member_location
+  - member_name
+  - globalPersonId
+  - alightPersonSessionToken
+  - alightRequestHeader
+  - company_name
+  - benefitCenterName
+
+collaborators:
+  - af3_verint_agent
+  - af3_healthnav_agent
+
+welcome_content:
+  welcome_message: "Welcome to Alight! How can I help you today?"
+  subtitle: "Benefits & Services Assistant"
+
+starter_prompts:
+  enabled: true
+  prompts:
+    - id: "1099_forms"
+      title: "1099 Forms"
+      label: "1099 Forms"
+      prompt: "Are our 1099 forms available online?"
+    - id: "health_coverage"
+      title: "Health Coverage"
+      label: "Health Coverage"
+      prompt: "What is my health insurance coverage?"
+    - id: "find_doctor"
+      title: "Find a Doctor"
+      label: "Find a Doctor"
+      prompt: "How do I find a new doctor?"

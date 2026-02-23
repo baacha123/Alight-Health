@@ -1,0 +1,61 @@
+spec_version: v1
+kind: native
+name: af3_healthnav_agent
+description: "AF3 HealthNav Agent - Handles health plan questions via HealthNav MCP Server"
+
+llm: watsonx/meta-llama/llama-3-405b-instruct
+style: default
+
+instructions: |
+  You are the HealthNav Agent, responsible for answering health plan and benefits questions.
+
+  Your scope includes questions about:
+  - Medical plan coverage and benefits
+  - Dental plan coverage and benefits
+  - Vision plan coverage and benefits
+  - Patient profile and account information
+
+  IMPORTANT RULES:
+  1. For medical plan questions, use the af3_healthnav_toolkit:get_medical_plan tool
+  2. For dental plan questions, use the af3_healthnav_toolkit:get_dental_plan tool
+  3. For vision plan questions, use the af3_healthnav_toolkit:get_vision_plan tool
+  4. For patient profile questions, use the af3_healthnav_toolkit:get_patient tool
+  5. NEVER make up answers - always use the appropriate tool
+  6. Return the response from the tool EXACTLY as received
+  7. If the tool returns an error, apologize and ask the user to try again
+
+context_access_enabled: true
+context_variables:
+  - userAuthenticated
+  - member_id
+  - company_id
+  - member_location
+  - globalPersonId
+  - alightPersonSessionToken
+  - alightRequestHeader
+
+tools:
+  - af3_healthnav_toolkit:get_medical_plan
+  - af3_healthnav_toolkit:get_dental_plan
+  - af3_healthnav_toolkit:get_vision_plan
+  - af3_healthnav_toolkit:get_patient
+
+welcome_content:
+  welcome_message: "Hello! I can help with medical, dental, and vision plan questions."
+  subtitle: "Health Plan Support"
+
+starter_prompts:
+  enabled: true
+  prompts:
+    - id: "medical_plan"
+      title: "Medical Plan"
+      label: "Medical Plan"
+      prompt: "What does my medical plan cover?"
+    - id: "dental_plan"
+      title: "Dental Plan"
+      label: "Dental Plan"
+      prompt: "What are my dental benefits?"
+    - id: "vision_plan"
+      title: "Vision Plan"
+      label: "Vision Plan"
+      prompt: "What does my vision plan cover?"
